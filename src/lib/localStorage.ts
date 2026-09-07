@@ -112,11 +112,11 @@ function saveLocalSyncLog(log: any) {
     if (fs.existsSync(LOGS_FILE)) {
       try {
         logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
-      } catch {}
+      } catch { }
     }
     logs.push(log);
     fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 2), 'utf-8');
-  } catch {}
+  } catch { }
 }
 
 export function updateLocalPost(postId: string, updates: Partial<SavedPost>): boolean {
@@ -207,9 +207,9 @@ export function searchLocalPosts(
         similarity = cosineSimilarity(queryEmbedding, post.embedding);
       }
 
-      // 2. Keyword check across caption, summary, category, OCR text, and extracted knowledge
-      const postText = `${post.caption || ''} ${post.ai_summary || ''} ${post.category || ''} ${post.ocr_text || ''} ${post.extracted_knowledge || ''}`.toLowerCase();
-      
+      // 2. Keyword check across caption, summary, and category
+      const postText = `${post.caption || ''} ${post.ai_summary || ''} ${post.category || ''}`.toLowerCase();
+
       if (lowerQuery && postText.includes(lowerQuery)) {
         hasDirectKeywordMatch = true;
         similarity = Math.max(similarity, 0.85);

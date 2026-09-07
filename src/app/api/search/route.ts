@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     try {
       const clerkAuth = auth();
       if (clerkAuth?.userId) userId = clerkAuth.userId;
-    } catch {}
+    } catch { }
     const targetUserId = userId || 'direct_cookie_user';
 
     // If query is empty, return latest posts for this user
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
               execution_time_ms: Date.now() - startTime,
             });
           }
-        } catch {}
+        } catch { }
       }
 
       let local = getLocalPosts(targetUserId);
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Perform Local Vector Similarity Search
-    const localMatches = searchLocalPosts(queryEmbedding, query, categoryFilter, targetUserId);
+    const localMatches = searchLocalPosts(queryEmbedding, query, categoryFilter);
 
     return NextResponse.json({
       posts: localMatches,

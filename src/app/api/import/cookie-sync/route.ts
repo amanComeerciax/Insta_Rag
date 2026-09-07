@@ -119,6 +119,19 @@ export async function POST(req: NextRequest) {
             .filter(Boolean);
         }
 
+        // Extract direct video stream URL if video/reel
+        let videoUrl: string | null = null;
+        if (Array.isArray(media.video_versions) && media.video_versions.length > 0) {
+          videoUrl = media.video_versions[0].url;
+        } else if (Array.isArray(media.carousel_media)) {
+          const videoSlide = media.carousel_media.find(
+            (slide: any) => Array.isArray(slide.video_versions) && slide.video_versions.length > 0
+          );
+          if (videoSlide) {
+            videoUrl = videoSlide.video_versions[0].url;
+          }
+        }
+
         const savedAt = media.taken_at
           ? new Date(media.taken_at * 1000).toISOString()
           : new Date().toISOString();
@@ -129,6 +142,7 @@ export async function POST(req: NextRequest) {
           caption,
           media_type: mediaType,
           thumbnail_url: thumbnailUrl,
+          video_url: videoUrl,
           carousel_media_urls: carouselMediaUrls.length > 0 ? carouselMediaUrls : undefined,
           saved_at: savedAt,
         });

@@ -26,11 +26,14 @@ export function assemblePostKnowledge(post: SavedPost): string {
   }
 
   if (post.ocr_text) {
-    parts.push(`Visual OCR Text from Post Images:\n${post.ocr_text.trim()}`);
+    const cleanOcr = post.ocr_text.trim();
+    parts.push(`Visual OCR Text from Post Images:\n${cleanOcr.length > 1200 ? cleanOcr.substring(0, 1200) + '... [truncated]' : cleanOcr}`);
   }
 
-  if (post.extracted_knowledge) {
-    parts.push(`Extracted Deep Knowledge:\n${post.extracted_knowledge.trim()}`);
+  // Only include extracted_knowledge if it is not a duplicate of ocr_text
+  if (post.extracted_knowledge && post.extracted_knowledge.trim() !== post.ocr_text?.trim()) {
+    const cleanExtracted = post.extracted_knowledge.trim();
+    parts.push(`Extracted Knowledge:\n${cleanExtracted.length > 1000 ? cleanExtracted.substring(0, 1000) + '... [truncated]' : cleanExtracted}`);
   }
 
   if (post.audio_transcript) {
@@ -95,9 +98,7 @@ export async function extractVisualKnowledgeFromPost(post: SavedPost): Promise<{
 
   try {
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-3.6-flash',
-    });
+    let model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
 
     const parts: any[] = [];
     parts.push({
@@ -110,10 +111,10 @@ Post Category: ${post.category || 'General'}
 Post URL: ${post.post_url}`,
     });
 
-    // Fetch images and convert to base64
-    for (let i = 0; i < imageUrls.length; i++) {
+    // Fetch up to 5 images and convert to base64
+    for (let i = 0; i < Math.min(imageUrls.length, 5); i++) {
       try {
-        const resp = await fetch(imageUrls[i], { signal: AbortSignal.timeout(8000) });
+        const resp = await fetch(imageUrls[i], { signal: AbortSignal.timeout(5000) });
         if (resp.ok) {
           const arrayBuffer = await resp.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
@@ -130,15 +131,34 @@ Post URL: ${post.post_url}`,
     }
 
     if (parts.length <= 1) {
-      // No images could be loaded
       return {
         ocr_text: '',
         extracted_knowledge: post.ai_summary || post.caption || '',
       };
     }
 
-    const res = await model.generateContent(parts);
-    const ocrText = res.response.text();
+    // Generate with 8-second timeout
+    let ocrText = '';
+    try {
+      const res = await Promise.race([
+        model.generateContent(parts),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini OCR timeout')), 8000)),
+      ]);
+      ocrText = res.response.text();
+    } catch (genErr: any) {
+      console.warn('[KnowledgeExtractor] Primary vision model failed, trying fallback:', genErr?.message);
+      try {
+        model = genAI.getGenerativeModel({ model: 'gemini-3.7-flash' });
+        const res = await Promise.race([
+          model.generateContent(parts),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini OCR fallback timeout')), 8000)),
+        ]);
+        ocrText = res.response.text();
+      } catch (fallbackErr: any) {
+        console.warn('[KnowledgeExtractor] Vision OCR fallback notice:', fallbackErr?.message);
+        ocrText = post.ai_summary || post.caption || '';
+      }
+    }
 
     const result = {
       ocr_text: ocrText,

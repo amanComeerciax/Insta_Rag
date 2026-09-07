@@ -125,7 +125,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
 }
 
 /**
- * Text Block Renderer (headings, bold, lists, tables, quotes)
+ * Text Block Renderer (all headings # to ######, bold, italic, middle dots, lists, tables, quotes)
  */
 function RenderTextBlock({ text }: { text: string }) {
   const lines = text.split('\n');
@@ -140,11 +140,11 @@ function RenderTextBlock({ text }: { text: string }) {
   };
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
+    const rawLine = lines[i];
+    const trimmed = rawLine.trim();
 
-    // Table detection
-    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+    // Table detection: starts and ends with '|' or contains multiple '|'
+    if (trimmed.startsWith('|') && (trimmed.endsWith('|') || trimmed.split('|').length >= 3)) {
       tableLines.push(trimmed);
       continue;
     } else if (tableLines.length > 0) {
@@ -157,58 +157,103 @@ function RenderTextBlock({ text }: { text: string }) {
       continue;
     }
 
-    // Headings
-    if (trimmed.startsWith('### ')) {
-      elements.push(
-        <h4 key={`h4-${i}`} className="text-sm font-semibold text-white mt-3 mb-1 tracking-tight">
-          {formatInline(trimmed.replace(/^###\s+/, ''))}
-        </h4>
-      );
-    } else if (trimmed.startsWith('## ')) {
-      elements.push(
-        <h3 key={`h3-${i}`} className="text-base font-bold text-white mt-4 mb-2 tracking-tight border-b border-neutral-800/80 pb-1">
-          {formatInline(trimmed.replace(/^##\s+/, ''))}
-        </h3>
-      );
-    } else if (trimmed.startsWith('# ')) {
-      elements.push(
-        <h2 key={`h2-${i}`} className="text-lg font-extrabold text-white mt-5 mb-2 tracking-tight">
-          {formatInline(trimmed.replace(/^#\s+/, ''))}
-        </h2>
-      );
-    } else if (trimmed.startsWith('---')) {
-      elements.push(<hr key={`hr-${i}`} className="my-3 border-neutral-800" />);
-    } else if (trimmed.startsWith('> ')) {
+    // 1. Headings (from # to ######)
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const headingText = headingMatch[2];
+
+      if (level === 1) {
+        elements.push(
+          <h2 key={`h1-${i}`} className="text-xl font-extrabold text-white mt-5 mb-2.5 tracking-tight border-b border-neutral-800 pb-2">
+            {formatInline(headingText)}
+          </h2>
+        );
+      } else if (level === 2) {
+        elements.push(
+          <h3 key={`h2-${i}`} className="text-lg font-bold text-white mt-4 mb-2 tracking-tight border-b border-neutral-800/80 pb-1.5">
+            {formatInline(headingText)}
+          </h3>
+        );
+      } else if (level === 3) {
+        elements.push(
+          <h4 key={`h3-${i}`} className="text-base font-semibold text-white mt-3.5 mb-1.5 tracking-tight">
+            {formatInline(headingText)}
+          </h4>
+        );
+      } else if (level === 4) {
+        elements.push(
+          <h5 key={`h4-${i}`} className="text-sm font-semibold text-white mt-3 mb-1 tracking-tight text-neutral-100">
+            {formatInline(headingText)}
+          </h5>
+        );
+      } else if (level === 5) {
+        elements.push(
+          <h6 key={`h5-${i}`} className="text-xs font-semibold text-neutral-300 mt-2.5 mb-1 uppercase tracking-wider">
+            {formatInline(headingText)}
+          </h6>
+        );
+      } else {
+        elements.push(
+          <h6 key={`h6-${i}`} className="text-xs font-medium text-neutral-400 mt-2 mb-1">
+            {formatInline(headingText)}
+          </h6>
+        );
+      }
+      continue;
+    }
+
+    // 2. Horizontal Rule (--- or *** or ___)
+    if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
+      elements.push(<hr key={`hr-${i}`} className="my-3.5 border-neutral-800/90" />);
+      continue;
+    }
+
+    // 3. Blockquotes (> ...)
+    if (trimmed.startsWith('>')) {
       elements.push(
         <blockquote
           key={`bq-${i}`}
-          className="border-l-2 border-neutral-600 pl-3 my-2 text-neutral-300 italic text-xs bg-neutral-900/40 py-1 rounded-r"
+          className="border-l-2 border-neutral-500 pl-3.5 py-1.5 my-2 text-neutral-300 italic text-xs bg-neutral-900/40 rounded-r-lg"
         >
-          {formatInline(trimmed.replace(/^>\s+/, ''))}
+          {formatInline(trimmed.replace(/^>\s*/, ''))}
         </blockquote>
       );
-    } else if (trimmed.match(/^[-*•]\s+/)) {
-      elements.push(
-        <div key={`li-${i}`} className="flex items-start gap-2 pl-1 my-0.5">
-          <span className="text-neutral-500 mt-1 select-none">•</span>
-          <span className="flex-1">{formatInline(trimmed.replace(/^[-*•]\s+/, ''))}</span>
-        </div>
-      );
-    } else if (trimmed.match(/^\d+\.\s+/)) {
-      const match = trimmed.match(/^(\d+)\.\s+(.*)$/);
-      elements.push(
-        <div key={`nli-${i}`} className="flex items-start gap-2 pl-1 my-0.5">
-          <span className="text-neutral-400 font-mono text-xs select-none">{match?.[1]}.</span>
-          <span className="flex-1">{formatInline(match?.[2] || '')}</span>
-        </div>
-      );
-    } else {
-      elements.push(
-        <p key={`p-${i}`} className="my-1">
-          {formatInline(trimmed)}
-        </p>
-      );
+      continue;
     }
+
+    // 4. Bullet lists, middle dots (·), checkboxes, or numbered lists
+    const listMatch = rawLine.match(/^(\s*)([-*+•·▪▫○]|\d+\.|\(\d+\)|\d+\))\s+(.*)$/);
+    if (listMatch) {
+      const indent = listMatch[1].length;
+      const marker = listMatch[2];
+      const itemText = listMatch[3];
+      const isNumbered = /^\d+\.|\(\d+\)|\d+\)/.test(marker);
+      const indentClass = indent >= 4 ? 'pl-8' : indent >= 2 ? 'pl-4' : 'pl-1';
+
+      elements.push(
+        <div key={`li-${i}`} className={`flex items-start gap-2 my-1 ${indentClass}`}>
+          {isNumbered ? (
+            <span className="text-neutral-400 font-mono text-xs select-none min-w-[1.25rem]">
+              {marker}
+            </span>
+          ) : (
+            <span className="text-neutral-500 text-xs mt-0.5 select-none">•</span>
+          )}
+          <div className="flex-1 text-sm text-neutral-200 leading-relaxed">
+            {formatInline(itemText)}
+          </div>
+        </div>
+      );
+      continue;
+    }
+
+    // 5. Normal Paragraph
+    elements.push(
+      <p key={`p-${i}`} className="my-1.5 leading-relaxed text-sm text-neutral-200">
+        {formatInline(trimmed)}
+      </p>
+    );
   }
 
   if (tableLines.length > 0) {
@@ -219,15 +264,26 @@ function RenderTextBlock({ text }: { text: string }) {
 }
 
 /**
- * Formats inline bold, inline code, and links
+ * Formats inline elements:
+ * - Code: `code`
+ * - Bold + Italic: ***text***
+ * - Bold: **text**
+ * - Italic: *text* or _text_
+ * - Strikethrough: ~~text~~
+ * - Links: [title](url)
+ * - Source citations: [Source: Post #4]
+ * - Mentions: @username
  */
 function formatInline(text: string): React.ReactNode {
-  // Regex to split inline code `...`, bold **...**, and markdown links [text](url)
-  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
-  const parts = text.split(regex);
+  // Regex splits on: inline code, bold-italic, bold, italic, strikethrough, sources, links, mentions
+  const INLINE_REGEX = /(`[^`]+`|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*\n]+\*|~~[^~]+~~|\[Source:\s*[^\]]+\]|\[Post\s*#[^\]]+\]|\[[^\]]+\]\([^)]+\)|@[a-zA-Z0-9_.-]+)/g;
+  const parts = text.split(INLINE_REGEX);
 
   return parts.map((part, index) => {
-    if (part.startsWith('`') && part.endsWith('`')) {
+    if (!part) return null;
+
+    // Inline code `...`
+    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
       return (
         <code
           key={index}
@@ -237,13 +293,68 @@ function formatInline(text: string): React.ReactNode {
         </code>
       );
     }
-    if (part.startsWith('**') && part.endsWith('**')) {
+
+    // Bold + Italic ***...***
+    if (part.startsWith('***') && part.endsWith('***') && part.length >= 6) {
+      return (
+        <strong key={index} className="font-semibold text-white">
+          <em className="italic">{part.slice(3, -3)}</em>
+        </strong>
+      );
+    }
+
+    // Bold **...**
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
       return (
         <strong key={index} className="font-semibold text-white">
           {part.slice(2, -2)}
         </strong>
       );
     }
+
+    // Italic *...*
+    if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
+      return (
+        <em key={index} className="italic text-neutral-200">
+          {part.slice(1, -1)}
+        </em>
+      );
+    }
+
+    // Strikethrough ~~...~~
+    if (part.startsWith('~~') && part.endsWith('~~') && part.length >= 4) {
+      return (
+        <del key={index} className="line-through text-neutral-500">
+          {part.slice(2, -2)}
+        </del>
+      );
+    }
+
+    // Source Citation badges: [Source: Post #4] or [Post #1]
+    if (part.startsWith('[Source:') || part.match(/^\[Post\s*#[^\]]+\]$/)) {
+      return (
+        <span
+          key={index}
+          className="inline-flex items-center px-2 py-0.5 mx-0.5 rounded-md text-[11px] font-medium bg-neutral-900 text-neutral-300 border border-neutral-700/80 shadow-sm"
+        >
+          {part}
+        </span>
+      );
+    }
+
+    // Mention @username
+    if (part.startsWith('@') && part.length > 1) {
+      return (
+        <span
+          key={index}
+          className="inline-flex items-center px-1.5 py-0.2 mx-0.5 rounded text-[11px] font-mono font-medium bg-neutral-900/90 text-neutral-300 border border-neutral-800"
+        >
+          {part}
+        </span>
+      );
+    }
+
+    // Markdown Link [title](url)
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
       return (
@@ -258,47 +369,55 @@ function formatInline(text: string): React.ReactNode {
         </a>
       );
     }
+
     return part;
   });
 }
 
 /**
- * Minimalist Markdown Table
+ * Minimalist, Responsive Markdown Table with full formatting & alignment
  */
 function RenderTable({ lines }: { lines: string[] }) {
   if (lines.length < 2) return null;
 
-  const rows = lines
-    .filter((l) => !l.includes('---'))
-    .map((line) =>
-      line
-        .split('|')
-        .slice(1, -1)
-        .map((c) => c.trim())
-    );
+  // Filter divider line and parse cells
+  const filtered = lines.filter((l) => !l.match(/^\|?\s*[-:]+[-| :]*\|?$/));
+
+  const rows = filtered.map((line) => {
+    let clean = line.trim();
+    if (clean.startsWith('|')) clean = clean.slice(1);
+    if (clean.endsWith('|')) clean = clean.slice(0, -1);
+    return clean.split('|').map((c) => c.trim());
+  });
 
   if (rows.length === 0) return null;
   const [header, ...bodyRows] = rows;
 
   return (
-    <div className="my-3 overflow-x-auto rounded-lg border border-neutral-800">
+    <div className="my-3.5 overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-950 shadow-md">
       <table className="w-full text-left text-xs border-collapse">
-        <thead className="bg-neutral-900/90 border-b border-neutral-800 text-white font-medium">
+        <thead className="bg-neutral-900/90 border-b border-neutral-800 text-white font-semibold">
           <tr>
             {header.map((col, idx) => (
-              <th key={idx} className="px-3 py-2 border-r border-neutral-800 last:border-r-0">
+              <th
+                key={idx}
+                className="px-3.5 py-2.5 border-r border-neutral-800/80 last:border-r-0 tracking-wide text-neutral-200"
+              >
                 {formatInline(col)}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-neutral-800 bg-neutral-950/60">
+        <tbody className="divide-y divide-neutral-800/70 bg-neutral-950/60">
           {bodyRows.map((row, rowIdx) => (
-            <tr key={rowIdx} className="hover:bg-neutral-900/50 transition-colors">
+            <tr
+              key={rowIdx}
+              className="hover:bg-neutral-900/50 transition-colors odd:bg-neutral-950 even:bg-neutral-900/20"
+            >
               {row.map((cell, colIdx) => (
                 <td
                   key={colIdx}
-                  className="px-3 py-2 border-r border-neutral-800 last:border-r-0 text-neutral-300"
+                  className="px-3.5 py-2.5 border-r border-neutral-800/70 last:border-r-0 text-neutral-300 leading-normal"
                 >
                   {formatInline(cell)}
                 </td>

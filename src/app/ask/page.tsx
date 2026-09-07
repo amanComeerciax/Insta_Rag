@@ -64,45 +64,54 @@ export default function AskAssistantPage() {
   const [selectedPost, setSelectedPost] = useState<SavedPost | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initializedFromUrl = useRef(false);
-  const hasLoadedFromStorage = useRef(false);
+  const isHydratedRef = useRef(false);
+  const activeKeyRef = useRef<string>('');
 
   // User-isolated storage key
   const storageKey = user?.id ? `instasaved_rag_chat_${user.id}` : 'instasaved_rag_chat_guest';
 
-  // Load chat history from localStorage on initial render or user change
+  // 1. HYDRATE CHAT: Safely load chat history when Clerk is ready or storageKey changes
   useEffect(() => {
     if (typeof window === 'undefined' || !isLoaded) return;
+
     try {
-      const saved = localStorage.getItem(storageKey);
+      if (activeKeyRef.current === storageKey && isHydratedRef.current) return;
+      activeKeyRef.current = storageKey;
+
+      let saved = localStorage.getItem(storageKey);
+      // Fallback: check guest chat if user chat is empty on first login
+      if (!saved && user?.id) {
+        saved = localStorage.getItem('instasaved_rag_chat_guest');
+      }
+
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setMessages(parsed);
-        } else {
-          setMessages([]);
         }
-      } else {
-        setMessages([]);
       }
     } catch (e) {
       console.warn('Could not load chat history:', e);
+    } finally {
+      isHydratedRef.current = true;
     }
-    hasLoadedFromStorage.current = true;
-  }, [storageKey, isLoaded]);
+  }, [storageKey, isLoaded, user?.id]);
 
-  // Save chat history to localStorage whenever messages change
+  // 2. PERSIST CHAT: Only save AFTER hydration is complete and when messages exist
   useEffect(() => {
-    if (typeof window === 'undefined' || !hasLoadedFromStorage.current) return;
+    if (typeof window === 'undefined' || !isHydratedRef.current) return;
+    if (messages.length === 0) return;
+
     try {
-      if (messages.length > 0) {
-        localStorage.setItem(storageKey, JSON.stringify(messages));
-      } else {
-        localStorage.removeItem(storageKey);
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+      // Keep guest backup in sync
+      if (user?.id) {
+        localStorage.setItem('instasaved_rag_chat_guest', JSON.stringify(messages));
       }
     } catch (e) {
       console.warn('Could not persist chat history:', e);
     }
-  }, [messages, storageKey]);
+  }, [messages, storageKey, user?.id]);
 
   // Load all posts for source modal previews
   useEffect(() => {
@@ -219,6 +228,7 @@ export default function AskAssistantPage() {
     try {
       if (typeof window !== 'undefined') {
         localStorage.removeItem(storageKey);
+        localStorage.removeItem('instasaved_rag_chat_guest');
       }
     } catch {}
   };
@@ -319,10 +329,10 @@ export default function AskAssistantPage() {
 
                 {/* Message Bubble */}
                 <div
-                  className={`max-w-[88%] sm:max-w-[80%] rounded-2xl p-4 sm:p-5 ${
+                  className={`rounded-2xl p-4 sm:p-5 ${
                     message.role === 'user'
-                      ? 'bg-neutral-900 text-white border border-neutral-800 rounded-tr-sm'
-                      : 'bg-neutral-950 text-neutral-200 border border-neutral-800/90 rounded-tl-sm shadow-xl'
+                      ? 'max-w-[85%] sm:max-w-[75%] bg-neutral-900 text-white border border-neutral-800 rounded-tr-sm'
+                      : 'max-w-[96%] sm:max-w-[92%] bg-neutral-950 text-neutral-200 border border-neutral-800/90 rounded-tl-sm shadow-xl'
                   }`}
                 >
                   {message.role === 'user' ? (
@@ -336,53 +346,57 @@ export default function AskAssistantPage() {
 
                       {/* Source Citation Cards */}
                       {message.sources && message.sources.length > 0 && (
-                        <div className="pt-3 border-t border-neutral-800/80">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-neutral-400 mb-2.5">
+                        <div className="pt-4 border-t border-neutral-800/80">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-neutral-400 mb-3">
                             <Bookmark className="w-3.5 h-3.5 text-neutral-400" />
                             <span>Sources Used ({message.sources.length} saved posts)</span>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
                             {message.sources.map((source, sIdx) => (
                               <div
                                 key={sIdx}
                                 onClick={() => handleOpenSourcePost(source)}
-                                className="group p-2.5 rounded-lg border border-neutral-800/80 bg-neutral-900/60 hover:bg-neutral-900 hover:border-neutral-700 transition-all cursor-pointer flex items-center gap-3"
+                                className="group rounded-xl border border-neutral-800 bg-neutral-900/60 hover:bg-neutral-900 hover:border-neutral-600 transition-all cursor-pointer overflow-hidden flex flex-col shadow-md hover:shadow-xl hover:-translate-y-0.5"
                               >
-                                {/* Thumbnail */}
-                                <div className="w-12 h-12 rounded-md bg-neutral-800 overflow-hidden shrink-0 relative border border-neutral-700/50">
+                                {/* Large Prominent Image Preview */}
+                                <div className="w-full aspect-[16/10] bg-neutral-950 relative overflow-hidden">
                                   {source.thumbnail_url ? (
                                     <img
                                       src={source.thumbnail_url}
-                                      alt="Post thumbnail"
-                                      className="w-full h-full object-cover"
+                                      alt="Post preview"
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                       crossOrigin="anonymous"
                                     />
                                   ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-neutral-500">
-                                      <ImageIcon className="w-4 h-4" />
+                                    <div className="w-full h-full flex items-center justify-center text-neutral-600 bg-neutral-950">
+                                      <ImageIcon className="w-8 h-8" />
                                     </div>
                                   )}
-                                </div>
 
-                                {/* Details */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center justify-between gap-1">
-                                    <span className="text-[10px] font-semibold text-neutral-300 uppercase tracking-wider px-1.5 py-0.2 rounded bg-neutral-800">
-                                      {source.category || 'Bookmark'}
+                                  {/* Floating Badges */}
+                                  <div className="absolute top-2 left-2 right-2 flex items-center justify-between pointer-events-none">
+                                    <span className="text-[10px] font-semibold text-white uppercase tracking-wider px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-sm border border-white/10 shadow">
+                                      {source.category || 'Post'}
                                     </span>
                                     {typeof source.similarity === 'number' && (
-                                      <span className="text-[10px] font-mono text-emerald-400">
+                                      <span className="text-[10px] font-mono font-bold text-emerald-300 px-1.5 py-0.5 rounded-md bg-black/75 backdrop-blur-sm border border-emerald-500/30 shadow">
                                         {Math.round(source.similarity * 100)}% match
                                       </span>
                                     )}
                                   </div>
-                                  <p className="text-xs text-neutral-300 line-clamp-1 mt-1 font-medium group-hover:text-white transition-colors">
+                                </div>
+
+                                {/* Card Details */}
+                                <div className="p-3 flex-1 flex flex-col justify-between">
+                                  <p className="text-xs text-neutral-200 font-medium line-clamp-2 leading-relaxed group-hover:text-white transition-colors">
                                     {source.ai_summary || source.caption || 'Saved post bookmark'}
                                   </p>
-                                  <div className="flex items-center gap-1 text-[10px] text-neutral-500 mt-0.5">
-                                    <span>Click to view slides & code</span>
-                                    <ChevronRight className="w-3 h-3 text-neutral-500 group-hover:translate-x-0.5 transition-transform" />
+                                  <div className="flex items-center justify-between text-[11px] text-neutral-400 mt-2.5 pt-2 border-t border-neutral-800/70">
+                                    <span className="font-medium text-neutral-400 group-hover:text-neutral-200">
+                                      View full post & slides
+                                    </span>
+                                    <ChevronRight className="w-3.5 h-3.5 text-neutral-400 group-hover:translate-x-1 group-hover:text-white transition-all" />
                                   </div>
                                 </div>
                               </div>

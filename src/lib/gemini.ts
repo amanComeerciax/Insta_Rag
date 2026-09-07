@@ -35,7 +35,7 @@ export async function analyzePostWithGemini(caption: string, postUrl: string): P
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-3.6-flash',
+      model: 'gemini-flash-latest',
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 0.2,

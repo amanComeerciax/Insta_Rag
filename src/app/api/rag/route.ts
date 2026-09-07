@@ -73,28 +73,27 @@ export async function POST(req: NextRequest) {
     // If query is broad and semantic similarity returned 0, take this user's recent bookmarks
     if (relevantPosts.length === 0) {
       const userPosts = getLocalPosts(targetUserId);
-      relevantPosts = userPosts.slice(0, 5);
+      relevantPosts = userPosts.slice(0, 4);
     } else {
-      // Limit to top 5 most relevant
-      relevantPosts = relevantPosts.slice(0, 5);
+      // Limit to top 4 most relevant
+      relevantPosts = relevantPosts.slice(0, 4);
     }
 
-    // 2. JIT MULTIMODAL VISION OCR: Extract text/fonts from image slides if not already indexed
-    await Promise.all(
-      relevantPosts.slice(0, 3).map(async (post) => {
-        if (
-          !post.ocr_text &&
-          ((post.carousel_media_urls && post.carousel_media_urls.length > 0) || post.thumbnail_url)
-        ) {
-          try {
-            console.log(`[RAG] JIT extracting visual OCR for post ${post.instagram_post_id}...`);
-            await extractVisualKnowledgeFromPost(post);
-          } catch (ocrErr) {
-            console.warn(`[RAG] JIT OCR extraction failed for post ${post.instagram_post_id}:`, ocrErr);
-          }
-        }
-      })
-    );
+    // 2. JIT MULTIMODAL VISION OCR: Extract text/fonts from image slides if not already indexed (max 1 post, 6s timeout)
+    try {
+      const targetPost = relevantPosts.find(
+        (p) => !p.ocr_text && ((p.carousel_media_urls && p.carousel_media_urls.length > 0) || p.thumbnail_url)
+      );
+      if (targetPost) {
+        console.log(`[RAG] JIT extracting visual OCR for post ${targetPost.instagram_post_id}...`);
+        await Promise.race([
+          extractVisualKnowledgeFromPost(targetPost),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('JIT OCR timeout')), 6000)),
+        ]);
+      }
+    } catch (ocrErr: any) {
+      console.warn('[RAG] JIT OCR notice:', ocrErr?.message);
+    }
 
     // 3. AUGMENTATION: Build structured context from retrieved posts
     const sources: RAGCitation[] = relevantPosts.map((post) => ({
@@ -102,6 +101,7 @@ export async function POST(req: NextRequest) {
       instagram_post_id: post.instagram_post_id,
       post_url: post.post_url,
       thumbnail_url: post.thumbnail_url,
+      video_url: post.video_url,
       caption: post.caption,
       ai_summary: post.ai_summary,
       category: post.category,
@@ -114,32 +114,36 @@ export async function POST(req: NextRequest) {
              assemblePostKnowledge(post);
     }).join('\n\n---\n\n');
 
-    const systemPrompt = `You are "SaveSort Copilot", an elite multimodal AI knowledge assistant for the user's personal Instagram bookmarks and saved posts.
-The user has indexed their bookmarks permanently into this system so they no longer need to depend on Instagram.
+    const systemPrompt = `You are "SaveSort Copilot", a friendly personal assistant for the user's saved Instagram bookmarks.
 
-You have access to the following retrieved bookmarks from the user's saved library:
+CRITICAL INSTRUCTIONS FOR YOUR ANSWERS:
+1. KEEP IT SIMPLE & SHORT (बहुत लंबा टेक्स्ट नहीं चाहिए):
+   - Do NOT write long essays, deep theoretical breakdowns, or walls of text.
+   - The user wants a clean, simple, and direct answer that can be understood in 10 seconds.
+2. FORMATTING:
+   - Use clean bullet points or a small 1-table format.
+   - Keep points short (1-2 lines per point).
+   - Avoid redundant sub-headings, repeated introductions, or filler text.
+3. LANGUAGE:
+   - If the user asks in Hindi or Hinglish, reply in simple, natural Hinglish/Hindi so it's super easy to understand.
+4. EXACT CONTENT FROM POSTS & OCR:
+   - If asked about fonts: List the font names and 1-line simple use-case.
+   - If asked about reels/videos: Explain the main point in 2-3 simple bullet points.
+   - If asked about code: Provide the clean code snippet with 1 sentence explaining where to paste it.
+5. SOURCE REFERENCE:
+   - Mention simply: "[Source: Post #1]" at the relevant point.
 
 === USER'S RETRIEVED SAVED POSTS ===
 ${contextSnippets || 'No relevant posts found in the library for this query.'}
-=====================================
-
-Guidelines for your response:
-1. Answer directly, concisely, and helpfully using the information in the retrieved posts.
-2. If the user asks in Hindi or Hinglish (e.g. "Maine fonts ke baare me kya save kiya tha?"), reply naturally in the same language or friendly Hinglish.
-3. If the user asks for code, CSS, HTML, or animations, output the complete, clean, working code block with syntax highlighting (\`\`\`css, \`\`\`html, etc.).
-4. If the user asks about typography or font pairings, list the exact font combinations, weights, and recommendations mentioned in the posts.
-5. Reference which post provided the information (e.g., "[Source: Post #1]" or mention the creator/account).
-6. If the user's query cannot be answered by any of their saved posts, politely let them know that you searched their saved posts and couldn't find a match, but offer a helpful general tip.
-7. Format with clean markdown headers, bold text, bullet points, and code blocks for maximum readability.
-8. You have direct access to multimodal visual OCR extracted from the images and carousel slides under "Visual OCR Text from Post Images". When the user asks about fonts, text, recipes, code, or details visible on the images, quote the exact font names, sizes, and content directly from that section. Never state that you cannot read images or that OCR is missing when visual OCR text is provided.`;
+=====================================`;
 
     // Format chat messages
     const chatMessages: any[] = [
       { role: 'system', content: systemPrompt },
     ];
 
-    // Include recent conversational history (up to last 6 messages)
-    for (const msg of history.slice(-6)) {
+    // Include recent conversational history (up to last 4 messages to prevent token overflow)
+    for (const msg of history.slice(-4)) {
       if (msg.role === 'user' || msg.role === 'assistant') {
         chatMessages.push({
           role: msg.role,
@@ -154,62 +158,77 @@ Guidelines for your response:
       content: query,
     });
 
-    // 4. GENERATION: Gemini 3.6 Flash (Primary with 1M token window) -> Groq (Fallback)
+    // 4. GENERATION: Multi-tier Model Cascade (Gemini Flash -> Groq OSS)
     const geminiKey = getGeminiApiKey();
     if (geminiKey && !geminiKey.includes('your_gemini_api_key')) {
-      try {
-        console.log('[RAG] Querying Gemini gemini-3.6-flash...');
-        const genAI = new GoogleGenerativeAI(geminiKey);
-        const model = genAI.getGenerativeModel({
-          model: 'gemini-3.6-flash',
-          systemInstruction: systemPrompt,
-        });
+      const geminiCandidateModels = [
+        'gemini-flash-latest',
+        'gemini-3.7-flash',
+        'gemini-flash-lite-latest',
+        'gemini-3.5-flash-lite'
+      ];
+      const genAI = new GoogleGenerativeAI(geminiKey);
 
-        const formattedHistory = history.slice(-6).map((m: any) => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        }));
+      for (const modelName of geminiCandidateModels) {
+        try {
+          console.log(`[RAG] Querying Gemini ${modelName}...`);
+          const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: systemPrompt,
+          });
 
-        const chat = model.startChat({ history: formattedHistory });
-        const result = await chat.sendMessage(query);
-        const answer = result.response.text();
+          const formattedHistory = history.slice(-4).map((m: any) => ({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }],
+          }));
 
-        return NextResponse.json({
-          answer,
-          sources,
-          provider: 'gemini',
-          modelUsed: 'gemini-3.6-flash',
-        });
-      } catch (geminiErr: any) {
-        console.warn('[RAG] Gemini error, falling back to Groq:', geminiErr?.message);
+          const chat = model.startChat({ history: formattedHistory });
+          const result = await chat.sendMessage(query);
+          const answer = result.response.text();
+
+          if (answer) {
+            return NextResponse.json({
+              answer,
+              sources,
+              provider: 'gemini',
+              modelUsed: modelName,
+            });
+          }
+        } catch (geminiErr: any) {
+          console.warn(`[RAG] Gemini model ${modelName} error (${geminiErr?.status || geminiErr?.message}), trying next...`);
+        }
       }
     }
 
-    // Fallback to Groq
+    // Fallback to Groq with supported models
     if (isGroqConfigured()) {
-      try {
-        console.log('[RAG] Fallback to Groq...');
-        const answer = await groqChatCompletion(chatMessages, {
-          model: 'llama-3.3-70b-versatile',
-          temperature: 0.3,
-          maxTokens: 1500,
-        });
+      const groqCandidateModels = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'];
 
-        if (answer) {
-          return NextResponse.json({
-            answer,
-            sources,
-            provider: 'groq',
-            modelUsed: 'llama-3.3-70b-versatile',
+      for (const modelName of groqCandidateModels) {
+        try {
+          console.log(`[RAG] Querying Groq ${modelName}...`);
+          const answer = await groqChatCompletion(chatMessages, {
+            model: modelName,
+            temperature: 0.3,
+            maxTokens: 1000,
           });
+
+          if (answer) {
+            return NextResponse.json({
+              answer,
+              sources,
+              provider: 'groq',
+              modelUsed: modelName,
+            });
+          }
+        } catch (groqErr: any) {
+          console.warn(`[RAG] Groq model ${modelName} error:`, groqErr?.message);
         }
-      } catch (groqErr: any) {
-        console.error('[RAG] Groq fallback error:', groqErr?.message);
       }
     }
 
     return NextResponse.json({
-      error: 'No AI provider (Groq or Gemini) is available.',
+      error: 'AI service is busy or undergoing maintenance. Please try again in a few moments.',
     }, { status: 500 });
 
   } catch (error: any) {

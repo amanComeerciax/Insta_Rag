@@ -77,6 +77,15 @@ export default function PostCard({ post, onSelect, onDelete }: PostCardProps) {
           </div>
         )}
 
+        {/* Center Play Icon Overlay for Videos/Reels */}
+        {(post.media_type === 'reel' || post.media_type === 'video' || Boolean(post.video_url)) && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+            <div className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 text-white flex items-center justify-center shadow-lg group-hover:scale-110 group-hover:bg-white group-hover:text-black transition-all">
+              <Play className="w-4 h-4 fill-current ml-0.5" />
+            </div>
+          </div>
+        )}
+
         {/* Top Badges */}
         <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between z-10">
           <span className="px-2 py-0.5 rounded bg-black/80 text-[11px] font-medium text-neutral-200 border border-neutral-700 backdrop-blur-sm">

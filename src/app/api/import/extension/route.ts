@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
           caption: item.caption || '',
           media_type: item.media_type || detectMediaType(item.post_url, item.caption || ''),
           thumbnail_url: item.thumbnail_url || null,
+          video_url: (item as any).video_url || null,
           saved_at: item.saved_at || new Date().toISOString(),
         });
       }

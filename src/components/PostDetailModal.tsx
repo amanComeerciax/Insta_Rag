@@ -15,7 +15,10 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
-  Layers
+  Layers,
+  Play,
+  Film,
+  Image as ImageIcon
 } from 'lucide-react';
 
 interface PostDetailModalProps {
@@ -41,6 +44,8 @@ export default function PostDetailModal({ post, onClose, onDelete }: PostDetailM
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [summary, setSummary] = useState(post?.ai_summary || '');
   const [analyzingSummary, setAnalyzingSummary] = useState(false);
+  const [mediaViewMode, setMediaViewMode] = useState<'cover' | 'player'>('cover');
+  const [videoError, setVideoError] = useState(false);
 
   // Per-post cache and active post tracker to isolate requests
   const [codeCache, setCodeCache] = useState<Record<string, ExtractedCode>>({});
@@ -57,7 +62,9 @@ export default function PostDetailModal({ post, onClose, onDelete }: PostDetailM
     setCodeError('');
     setSummary(post?.ai_summary || '');
     setCodeResult(codeCache[currentId] || null);
-  }, [post?.id, post?.instagram_post_id, codeCache]);
+    setMediaViewMode(post?.video_url ? 'player' : 'cover');
+    setVideoError(false);
+  }, [post?.id, post?.instagram_post_id, post?.video_url, codeCache]);
 
   const handleDeepAnalyze = async () => {
     if (!post) return;
@@ -104,6 +111,12 @@ export default function PostDetailModal({ post, onClose, onDelete }: PostDetailM
   } else if (post.thumbnail_url) {
     slides.push(post.thumbnail_url);
   }
+
+  const isVideoOrReel = Boolean(
+    post.media_type === 'reel' || 
+    post.media_type === 'video' || 
+    post.video_url
+  );
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(post.post_url);
@@ -241,67 +254,180 @@ export default function PostDetailModal({ post, onClose, onDelete }: PostDetailM
 
         {/* Body */}
         <div className="p-5 overflow-y-auto space-y-4">
-          {/* Multi-Slide Carousel Viewer */}
-          {slides.length > 0 && (
-            <div className="space-y-2">
-              <div className="relative rounded-lg overflow-hidden max-h-80 bg-neutral-900 flex items-center justify-center border border-neutral-800 group">
-                <img
-                  src={slides[currentSlideIndex]}
-                  alt={`Slide ${currentSlideIndex + 1}`}
-                  className="w-full h-full max-h-80 object-contain bg-black"
-                />
-
-                {/* Multi-page Navigation Arrows */}
-                {slides.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setCurrentSlideIndex((prev) => (prev > 0 ? prev - 1 : slides.length - 1))}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/70 hover:bg-black text-white flex items-center justify-center border border-neutral-700 transition-colors"
-                      title="Previous Slide"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCurrentSlideIndex((prev) => (prev < slides.length - 1 ? prev + 1 : 0))}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/70 hover:bg-black text-white flex items-center justify-center border border-neutral-700 transition-colors"
-                      title="Next Slide"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-
-                    {/* Slide indicator badge */}
-                    <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-black/80 text-[11px] font-mono text-neutral-200 border border-neutral-700 backdrop-blur-sm">
-                      {currentSlideIndex + 1} / {slides.length}
-                    </div>
-                  </>
-                )}
+          {/* Mode Switcher for Reels & Videos */}
+          {isVideoOrReel && (
+            <div className="flex items-center justify-between pb-0.5">
+              <div className="flex items-center gap-1 bg-neutral-900 p-1 rounded-lg border border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setMediaViewMode('player')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                    mediaViewMode === 'player'
+                      ? 'bg-white text-black font-semibold shadow-sm'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Watch Video / Reel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMediaViewMode('cover')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                    mediaViewMode === 'cover'
+                      ? 'bg-neutral-800 text-white shadow-sm'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  <span>Cover Photo</span>
+                </button>
               </div>
 
-              {/* Thumbnail Strip for Carousel Slides */}
-              {slides.length > 1 && (
-                <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-                  {slides.map((url, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setCurrentSlideIndex(idx)}
-                      className={`relative w-12 h-12 rounded-md overflow-hidden border flex-shrink-0 transition-all ${
-                        currentSlideIndex === idx
-                          ? 'border-white ring-1 ring-white'
-                          : 'border-neutral-800 opacity-50 hover:opacity-100'
-                      }`}
+              <a
+                href={post.post_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[11px] text-neutral-400 hover:text-white transition-colors"
+              >
+                <span>Instagram App ↗</span>
+              </a>
+            </div>
+          )}
+
+          {/* Video Player Mode */}
+          {isVideoOrReel && mediaViewMode === 'player' ? (
+            <div className="space-y-2">
+              {post.video_url && !videoError ? (
+                <div className="relative rounded-lg overflow-hidden max-h-[460px] bg-black flex items-center justify-center border border-neutral-800">
+                  <video
+                    key={post.video_url}
+                    src={post.video_url}
+                    poster={post.thumbnail_url || undefined}
+                    controls
+                    autoPlay
+                    playsInline
+                    crossOrigin="anonymous"
+                    onError={() => setVideoError(true)}
+                    className="w-full max-h-[460px] object-contain rounded-lg bg-black"
+                  />
+                </div>
+              ) : (
+                <div className="relative rounded-lg overflow-hidden border border-neutral-800 bg-neutral-950 flex flex-col items-center justify-center">
+                  <iframe
+                    src={`https://www.instagram.com/reel/${post.instagram_post_id}/embed/`}
+                    className="w-full h-[480px] sm:h-[520px] border-0 rounded-lg bg-neutral-950"
+                    allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                    allowFullScreen
+                    scrolling="no"
+                  />
+                  <div className="w-full bg-neutral-900/90 px-3 py-2 border-t border-neutral-800 flex items-center justify-between text-xs text-neutral-400">
+                    <span className="flex items-center gap-1.5 text-neutral-300">
+                      <Play className="w-3 h-3 fill-current text-neutral-400" />
+                      Live Reel Player
+                    </span>
+                    <a
+                      href={post.post_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-neutral-200 hover:text-white font-medium hover:underline"
                     >
-                      <img src={url} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
-                      <span className="absolute bottom-0 right-0 bg-black/80 text-[9px] font-mono px-1 text-white">
-                        {idx + 1}
-                      </span>
-                    </button>
-                  ))}
+                      <span>Open on Instagram</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
                 </div>
               )}
             </div>
+          ) : (
+            /* Multi-Slide Carousel or Cover Viewer */
+            slides.length > 0 && (
+              <div className="space-y-2">
+                <div
+                  className={`relative rounded-lg overflow-hidden max-h-80 bg-neutral-900 flex items-center justify-center border border-neutral-800 group ${
+                    isVideoOrReel ? 'cursor-pointer' : ''
+                  }`}
+                  onClick={() => {
+                    if (isVideoOrReel) setMediaViewMode('player');
+                  }}
+                >
+                  <img
+                    src={slides[currentSlideIndex]}
+                    alt={`Slide ${currentSlideIndex + 1}`}
+                    className="w-full h-full max-h-80 object-contain bg-black transition-transform duration-300 group-hover:scale-[1.01]"
+                  />
+
+                  {/* Play Overlay for Reels & Videos */}
+                  {isVideoOrReel && (
+                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/50 flex flex-col items-center justify-center transition-all">
+                      <div className="w-14 h-14 rounded-full bg-white text-black shadow-2xl flex items-center justify-center group-hover:scale-110 active:scale-95 transition-all">
+                        <Play className="w-6 h-6 fill-black ml-0.5 text-black" />
+                      </div>
+                      <div className="mt-2.5 px-3 py-1 rounded-full bg-black/80 text-[11px] font-medium text-white border border-neutral-700 backdrop-blur-sm shadow-md flex items-center gap-1.5">
+                        <Play className="w-2.5 h-2.5 fill-current text-white" />
+                        <span>Click to Play Reel</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Multi-page Navigation Arrows */}
+                  {slides.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCurrentSlideIndex((prev) => (prev > 0 ? prev - 1 : slides.length - 1));
+                        }}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/70 hover:bg-black text-white flex items-center justify-center border border-neutral-700 transition-colors z-10"
+                        title="Previous Slide"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCurrentSlideIndex((prev) => (prev < slides.length - 1 ? prev + 1 : 0));
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/70 hover:bg-black text-white flex items-center justify-center border border-neutral-700 transition-colors z-10"
+                        title="Next Slide"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+
+                      {/* Slide indicator badge */}
+                      <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-black/80 text-[11px] font-mono text-neutral-200 border border-neutral-700 backdrop-blur-sm z-10">
+                        {currentSlideIndex + 1} / {slides.length}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Thumbnail Strip for Carousel Slides */}
+                {slides.length > 1 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto py-1">
+                    {slides.map((url, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setCurrentSlideIndex(idx)}
+                        className={`relative w-12 h-12 rounded-md overflow-hidden border flex-shrink-0 transition-all ${
+                          currentSlideIndex === idx
+                            ? 'border-white ring-1 ring-white'
+                            : 'border-neutral-800 opacity-50 hover:opacity-100'
+                        }`}
+                      >
+                        <img src={url} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
+                        <span className="absolute bottom-0 right-0 bg-black/80 text-[9px] font-mono px-1 text-white">
+                          {idx + 1}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
           )}
 
           {/* AI Summary Box */}

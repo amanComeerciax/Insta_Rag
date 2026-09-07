@@ -9,6 +9,7 @@ export interface SavedPost {
   media_type: MediaType;
   thumbnail_url?: string | null;
   carousel_media_urls?: string[];
+  video_url?: string | null;
   ocr_text?: string | null;
   ai_summary?: string | null;
   category: string;
@@ -31,6 +32,7 @@ export interface RAGCitation {
   instagram_post_id: string;
   post_url: string;
   thumbnail_url?: string | null;
+  video_url?: string | null;
   caption?: string | null;
   ai_summary?: string | null;
   category: string;
@@ -50,6 +52,7 @@ export interface RawExportPost {
   timestamp?: number;
   media_type?: MediaType;
   thumbnail_url?: string;
+  video_url?: string;
 }
 
 export interface ParsedInstagramPost {
@@ -59,6 +62,7 @@ export interface ParsedInstagramPost {
   media_type: MediaType;
   thumbnail_url?: string;
   carousel_media_urls?: string[];
+  video_url?: string | null;
   saved_at: string;
 }
 
