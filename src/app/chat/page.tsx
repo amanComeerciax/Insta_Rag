@@ -65,6 +65,12 @@ export default function ChatPage() {
         throw new Error(data.error || 'Failed to fetch inbox.');
       }
 
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('instasaved_ig_session_id', key);
+        }
+      } catch {}
+
       setThreads(data.threads || []);
       if (data.threads && data.threads.length > 0 && !activeThread) {
         loadThread(data.threads[0], key);
@@ -75,6 +81,19 @@ export default function ChatPage() {
       setLoadingInbox(false);
     }
   };
+
+  // Restore saved session ID on initial load
+  React.useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('instasaved_ig_session_id');
+        if (saved) {
+          setSessionId(saved);
+          fetchInbox(saved);
+        }
+      }
+    } catch {}
+  }, []);
 
   // Fetch specific thread messages
   const loadThread = async (thread: Thread, customSession?: string) => {

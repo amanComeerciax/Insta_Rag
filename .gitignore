@@ -38,3 +38,6 @@ next-env.d.ts
 # local data cache
 data/*.json
 !data/.gitkeep
+
+# scratch files
+scratch/

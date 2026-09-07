@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { processAndSavePosts } from '@/lib/processPosts';
 import { ParsedInstagramPost, MediaType } from '@/types';
 import { createClient } from '@/lib/supabase/server';
@@ -24,10 +25,17 @@ export async function POST(req: NextRequest) {
     // Determine user identity
     let userId = 'direct_cookie_user';
     try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user?.id) userId = user.id;
+      const clerkAuth = auth();
+      if (clerkAuth?.userId) userId = clerkAuth.userId;
     } catch {}
+
+    if (userId === 'direct_cookie_user') {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) userId = user.id;
+      } catch {}
+    }
 
     // Extract ds_user_id from sessionid if formatted as USERID%3A...
     let dsUserId = '';

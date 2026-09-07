@@ -12,42 +12,54 @@ function ensureDataDir() {
   }
 }
 
-export function getLocalPosts(): SavedPost[] {
+export function getLocalPosts(userId?: string | null): SavedPost[] {
   try {
     ensureDataDir();
     if (!fs.existsSync(POSTS_FILE)) {
       return [];
     }
     const content = fs.readFileSync(POSTS_FILE, 'utf-8');
-    return JSON.parse(content) || [];
+    const posts: SavedPost[] = JSON.parse(content) || [];
+    if (userId) {
+      return posts.filter((p) => (p.user_id || 'direct_cookie_user') === userId);
+    }
+    return posts;
   } catch (err) {
     console.warn('[LocalStorage] Could not read local posts:', err);
     return [];
   }
 }
 
-export function saveLocalPosts(newPosts: SavedPost[]): { added: number; skipped: number } {
+export function saveLocalPosts(newPosts: SavedPost[], targetUserId?: string | null): { added: number; skipped: number } {
   try {
     ensureDataDir();
-    const existing = getLocalPosts();
+    const existing = getLocalPosts(); // retrieve all to avoid corrupting other users
     const existingMap = new Map<string, SavedPost>();
 
     for (const post of existing) {
-      existingMap.set(post.instagram_post_id, post);
+      const uId = post.user_id || 'direct_cookie_user';
+      existingMap.set(`${uId}:${post.instagram_post_id}`, post);
     }
 
     let added = 0;
     let skipped = 0;
 
     for (const post of newPosts) {
-      if (!existingMap.has(post.instagram_post_id)) {
-        existingMap.set(post.instagram_post_id, post);
+      const uId = post.user_id || targetUserId || 'direct_cookie_user';
+      const postToSave: SavedPost = {
+        ...post,
+        user_id: uId,
+      };
+      const key = `${uId}:${post.instagram_post_id}`;
+
+      if (!existingMap.has(key)) {
+        existingMap.set(key, postToSave);
         added++;
       } else {
         // Update existing item
-        existingMap.set(post.instagram_post_id, {
-          ...existingMap.get(post.instagram_post_id)!,
-          ...post,
+        existingMap.set(key, {
+          ...existingMap.get(key)!,
+          ...postToSave,
         });
         skipped++;
       }
@@ -62,7 +74,7 @@ export function saveLocalPosts(newPosts: SavedPost[]): { added: number; skipped:
     // Update sync log
     saveLocalSyncLog({
       id: `sync_${Date.now()}`,
-      user_id: 'local_user',
+      user_id: targetUserId || 'direct_cookie_user',
       source: 'extension',
       posts_added: added,
       posts_skipped: skipped,
@@ -77,12 +89,16 @@ export function saveLocalPosts(newPosts: SavedPost[]): { added: number; skipped:
   }
 }
 
-export function getLocalSyncLog(): any {
+export function getLocalSyncLog(userId?: string | null): any {
   try {
     ensureDataDir();
     if (!fs.existsSync(LOGS_FILE)) return null;
     const content = fs.readFileSync(LOGS_FILE, 'utf-8');
-    const logs = JSON.parse(content);
+    const logs: any[] = JSON.parse(content) || [];
+    if (userId) {
+      const userLogs = logs.filter((l) => (l.user_id || 'direct_cookie_user') === userId);
+      return userLogs[userLogs.length - 1] || null;
+    }
     return logs[logs.length - 1] || null;
   } catch {
     return null;
@@ -126,10 +142,17 @@ export function updateLocalPost(postId: string, updates: Partial<SavedPost>): bo
   }
 }
 
-export function deleteLocalPost(postId: string): boolean {
+export function deleteLocalPost(postId: string, userId?: string | null): boolean {
   try {
     const existing = getLocalPosts();
-    const filtered = existing.filter((p) => p.id !== postId && p.instagram_post_id !== postId);
+    const filtered = existing.filter((p) => {
+      const matchId = p.id === postId || p.instagram_post_id === postId;
+      if (!matchId) return true;
+      if (userId) {
+        return (p.user_id || 'direct_cookie_user') !== userId;
+      }
+      return false;
+    });
     fs.writeFileSync(POSTS_FILE, JSON.stringify(filtered, null, 2), 'utf-8');
     return true;
   } catch {
@@ -137,11 +160,17 @@ export function deleteLocalPost(postId: string): boolean {
   }
 }
 
-export function clearAllLocalPosts(): boolean {
+export function clearAllLocalPosts(userId?: string | null): boolean {
   try {
     ensureDataDir();
-    fs.writeFileSync(POSTS_FILE, JSON.stringify([], null, 2), 'utf-8');
-    fs.writeFileSync(LOGS_FILE, JSON.stringify([], null, 2), 'utf-8');
+    if (!userId) {
+      fs.writeFileSync(POSTS_FILE, JSON.stringify([], null, 2), 'utf-8');
+      fs.writeFileSync(LOGS_FILE, JSON.stringify([], null, 2), 'utf-8');
+      return true;
+    }
+    const existing = getLocalPosts();
+    const remaining = existing.filter((p) => (p.user_id || 'direct_cookie_user') !== userId);
+    fs.writeFileSync(POSTS_FILE, JSON.stringify(remaining, null, 2), 'utf-8');
     return true;
   } catch {
     return false;
@@ -178,8 +207,8 @@ export function searchLocalPosts(
         similarity = cosineSimilarity(queryEmbedding, post.embedding);
       }
 
-      // 2. Keyword check across caption, summary, and category
-      const postText = `${post.caption || ''} ${post.ai_summary || ''} ${post.category || ''}`.toLowerCase();
+      // 2. Keyword check across caption, summary, category, OCR text, and extracted knowledge
+      const postText = `${post.caption || ''} ${post.ai_summary || ''} ${post.category || ''} ${post.ocr_text || ''} ${post.extracted_knowledge || ''}`.toLowerCase();
       
       if (lowerQuery && postText.includes(lowerQuery)) {
         hasDirectKeywordMatch = true;

@@ -1,42 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import NextLink from 'next/link';
-import { Bookmark, LayoutDashboard, LogOut, MessageSquare, Sparkles } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { Bookmark, LayoutDashboard, MessageSquare, Sparkles } from 'lucide-react';
+import { SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
 
 export default function Navbar() {
-  const [user, setUser] = useState<any>(null);
-
-  useEffect(() => {
-    try {
-      const supabase = createClient();
-      supabase.auth.getUser().then(({ data }) => {
-        setUser(data.user);
-      });
-
-      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-        setUser(session?.user ?? null);
-      });
-
-      return () => {
-        authListener.subscription.unsubscribe();
-      };
-    } catch {
-      // Offline fallback
-    }
-  }, []);
-
-  const handleSignOut = async () => {
-    try {
-      const supabase = createClient();
-      await supabase.auth.signOut();
-      window.location.href = '/';
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-black/90 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -47,7 +16,7 @@ export default function Navbar() {
           </div>
           <div>
             <span className="font-semibold text-base tracking-tight text-white">
-              SaveSort <span className="text-neutral-400 font-normal">AI</span>
+              Insta<span className="text-neutral-400 font-normal">_Rag</span>
             </span>
           </div>
         </NextLink>
@@ -77,22 +46,28 @@ export default function Navbar() {
           </NextLink>
         </nav>
 
-        {/* Right CTA / Auth Status */}
+        {/* Right CTA / Clerk Auth Status */}
         <div className="flex items-center gap-3">
-          {user ? (
+          <SignedIn>
             <div className="flex items-center gap-3">
-              <span className="hidden sm:inline text-xs text-neutral-400 truncate max-w-[150px]">
-                {user.email}
-              </span>
-              <button
-                onClick={handleSignOut}
-                className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-900 border border-neutral-800 transition-colors"
-                title="Sign Out"
+              <NextLink
+                href="/dashboard"
+                className="hidden sm:inline-flex text-xs font-medium text-neutral-300 hover:text-white px-3 py-1.5 transition-colors"
               >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
+                Dashboard
+              </NextLink>
+              <UserButton
+                afterSignOutUrl="/"
+                appearance={{
+                  elements: {
+                    avatarBox: 'w-8 h-8 rounded-lg border border-neutral-700',
+                  },
+                }}
+              />
             </div>
-          ) : (
+          </SignedIn>
+
+          <SignedOut>
             <div className="flex items-center gap-2">
               <NextLink
                 href="/login"
@@ -107,7 +82,7 @@ export default function Navbar() {
                 Open Dashboard
               </NextLink>
             </div>
-          )}
+          </SignedOut>
         </div>
       </div>
     </header>

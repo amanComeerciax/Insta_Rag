@@ -53,113 +53,123 @@ export function assemblePostKnowledge(post: SavedPost): string {
 }
 
 /**
- * Multimodal Deep Knowledge Extractor
- * Uses Groq Vision (Primary) or Gemini Vision (Fallback) to inspect post slides/thumbnails
- * and extract actionable knowledge, fonts, code, or quotes.
+ * Multimodal Deep Visual & OCR Knowledge Extractor
+ * Uses Gemini 3.6 Flash Vision to inspect post slides/thumbnails,
+ * extracting all visible text, font names, typography, code, or quotes.
  */
-export async function extractDeepKnowledge(post: SavedPost): Promise<{
+export async function extractVisualKnowledgeFromPost(post: SavedPost): Promise<{
+  ocr_text: string;
   extracted_knowledge: string;
-  code_snippet?: { html?: string; css?: string; js?: string };
+  code_snippet?: { html?: string; css?: string; js?: string } | null;
 }> {
+  // If already extracted, return cached
+  if (post.ocr_text && post.extracted_knowledge) {
+    return {
+      ocr_text: post.ocr_text,
+      extracted_knowledge: post.extracted_knowledge,
+      code_snippet: post.code_snippet,
+    };
+  }
+
   const imageUrls: string[] = [];
   if (Array.isArray(post.carousel_media_urls) && post.carousel_media_urls.length > 0) {
-    imageUrls.push(...post.carousel_media_urls.slice(0, 4));
+    imageUrls.push(...post.carousel_media_urls.slice(0, 8));
   } else if (post.thumbnail_url && post.thumbnail_url.startsWith('http')) {
     imageUrls.push(post.thumbnail_url);
   }
 
-  // 1. PRIMARY: Groq Qwen Vision or gpt-oss-120b
-  if (isGroqConfigured()) {
-    try {
-      const contentItems: any[] = [];
-      contentItems.push({
-        type: 'text',
-        text: `You are an elite knowledge extraction engine for personal bookmarks.
-Analyze this Instagram post and extract ALL actionable knowledge so the user can search and use it permanently without needing Instagram.
-Extract:
-1. All key topics, facts, tips, steps, recipe ingredients, font names, or book recommendations.
-2. If code, HTML, CSS, or UI animations are shown, extract or generate the complete working code.
-3. Transcribe visible text on the image slides faithfully.
+  if (imageUrls.length === 0) {
+    return {
+      ocr_text: '',
+      extracted_knowledge: post.ai_summary || post.caption || '',
+    };
+  }
 
-Caption: "${post.caption || 'No caption available'}"
-Category: "${post.category || 'General'}"
-URL: "${post.post_url}"
+  const geminiKey = getGeminiApiKey();
+  if (!geminiKey || geminiKey.includes('your_gemini_api_key')) {
+    return {
+      ocr_text: '',
+      extracted_knowledge: post.ai_summary || post.caption || '',
+    };
+  }
 
-Respond ONLY with valid JSON in this exact structure:
-{
-  "extracted_knowledge": "Comprehensive, structured summary and key takeaways (bullet points, font pairings, tips, or steps).",
-  "html": "<!-- Complete HTML if applicable or empty string -->",
-  "css": "/* Complete CSS if applicable or empty string */",
-  "js": "// JavaScript if applicable or empty string"
-}`,
-      });
+  try {
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-3.6-flash',
+    });
 
-      for (const imgUrl of imageUrls.slice(0, 3)) {
-        if (imgUrl && imgUrl.startsWith('http')) {
-          contentItems.push({
-            type: 'image_url',
-            image_url: { url: imgUrl },
+    const parts: any[] = [];
+    parts.push({
+      text: `You are an elite Multimodal OCR and Knowledge Extraction engine for personal saved Instagram bookmarks.
+Extract ALL visible text, font names, recommendations, typography details, steps, code, and key takeaways from all the provided image slides of this Instagram post.
+Be very thorough and list slide by slide everything visible on the images (especially font names, pairings, designer tips, code snippets, etc.).
+
+Post Caption: ${post.caption || 'No caption'}
+Post Category: ${post.category || 'General'}
+Post URL: ${post.post_url}`,
+    });
+
+    // Fetch images and convert to base64
+    for (let i = 0; i < imageUrls.length; i++) {
+      try {
+        const resp = await fetch(imageUrls[i], { signal: AbortSignal.timeout(8000) });
+        if (resp.ok) {
+          const arrayBuffer = await resp.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          parts.push({
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: buffer.toString('base64'),
+            },
           });
         }
+      } catch (fetchErr) {
+        console.warn(`[KnowledgeExtractor] Could not fetch image slide ${i + 1}:`, fetchErr);
       }
-
-      const model = imageUrls.length > 0 ? 'qwen/qwen3.8-27b' : 'openai/gpt-oss-120b';
-      const resultStr = await groqChatCompletion(
-        [{ role: 'user', content: contentItems }],
-        { model, jsonMode: true, temperature: 0.2 }
-      );
-
-      const parsed = JSON.parse(resultStr);
-      const codeSnippet = (parsed.html || parsed.css || parsed.js) ? {
-        html: parsed.html || '',
-        css: parsed.css || '',
-        js: parsed.js || '',
-      } : undefined;
-
-      return {
-        extracted_knowledge: parsed.extracted_knowledge || post.ai_summary || post.caption || '',
-        code_snippet: codeSnippet,
-      };
-    } catch (err) {
-      console.warn('[KnowledgeExtractor] Groq failed, falling back to Gemini:', err);
     }
-  }
 
-  // 2. FALLBACK: Google Gemini Vision
-  const geminiKey = getGeminiApiKey();
-  if (geminiKey && !geminiKey.includes('your_gemini_api_key')) {
+    if (parts.length <= 1) {
+      // No images could be loaded
+      return {
+        ocr_text: '',
+        extracted_knowledge: post.ai_summary || post.caption || '',
+      };
+    }
+
+    const res = await model.generateContent(parts);
+    const ocrText = res.response.text();
+
+    const result = {
+      ocr_text: ocrText,
+      extracted_knowledge: ocrText,
+    };
+
+    // Cache into the post in-memory
+    post.ocr_text = ocrText;
+    post.extracted_knowledge = ocrText;
+
+    // Cache permanently to local storage
     try {
-      const genAI = new GoogleGenerativeAI(geminiKey);
-      const model = genAI.getGenerativeModel({
-        model: 'gemini-3.6-flash',
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+      const { updateLocalPost } = await import('./localStorage');
+      updateLocalPost(post.id, {
+        ocr_text: ocrText,
+        extracted_knowledge: ocrText,
       });
-
-      const prompt = `Analyze this Instagram post and extract ALL actionable knowledge for personal RAG search:
-Caption: "${post.caption || 'No caption'}"
-Category: "${post.category || 'General'}"
-
-Return JSON:
-{
-  "extracted_knowledge": "Detailed key facts, font names, steps, or code tips.",
-  "html": "",
-  "css": "",
-  "js": ""
-}`;
-
-      const res = await model.generateContent(prompt);
-      const parsed = JSON.parse(res.response.text());
-      return {
-        extracted_knowledge: parsed.extracted_knowledge || post.ai_summary || post.caption || '',
-        code_snippet: (parsed.html || parsed.css) ? { html: parsed.html, css: parsed.css, js: parsed.js } : undefined,
-      };
-    } catch (err) {
-      console.warn('[KnowledgeExtractor] Gemini fallback error:', err);
+    } catch (saveErr) {
+      console.warn('[KnowledgeExtractor] Error caching OCR to storage:', saveErr);
     }
-  }
 
-  // Heuristic fallback
-  return {
-    extracted_knowledge: post.ai_summary || post.caption || 'Saved bookmark knowledge.',
-  };
+    return result;
+  } catch (err: any) {
+    console.error('[KnowledgeExtractor] Gemini Vision OCR failed:', err?.message || err);
+    return {
+      ocr_text: '',
+      extracted_knowledge: post.ai_summary || post.caption || '',
+    };
+  }
+}
+
+export async function extractDeepKnowledge(post: SavedPost) {
+  return extractVisualKnowledgeFromPost(post);
 }

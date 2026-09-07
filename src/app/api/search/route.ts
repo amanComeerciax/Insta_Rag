@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { generateEmbedding } from '@/lib/gemini';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient, isSupabaseConfigured } from '@/lib/supabase/admin';
@@ -13,7 +14,15 @@ export async function POST(req: NextRequest) {
     const query = (body.query || '').trim();
     const categoryFilter = body.category && body.category !== 'All' ? body.category : null;
 
-    // If query is empty, return latest posts
+    // Determine current user via Clerk
+    let userId: string | null = null;
+    try {
+      const clerkAuth = auth();
+      if (clerkAuth?.userId) userId = clerkAuth.userId;
+    } catch {}
+    const targetUserId = userId || 'direct_cookie_user';
+
+    // If query is empty, return latest posts for this user
     if (!query) {
       if (isSupabaseConfigured()) {
         try {
@@ -21,6 +30,7 @@ export async function POST(req: NextRequest) {
           let dbQuery = adminSupabase
             .from('saved_posts')
             .select('*')
+            .eq('user_id', targetUserId)
             .order('saved_at', { ascending: false })
             .limit(30);
 
@@ -37,7 +47,7 @@ export async function POST(req: NextRequest) {
         } catch {}
       }
 
-      let local = getLocalPosts();
+      let local = getLocalPosts(targetUserId);
       if (categoryFilter) {
         local = local.filter((p) => p.category === categoryFilter);
       }
@@ -77,7 +87,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Perform Local Vector Similarity Search
-    const localMatches = searchLocalPosts(queryEmbedding, query, categoryFilter);
+    const localMatches = searchLocalPosts(queryEmbedding, query, categoryFilter, targetUserId);
 
     return NextResponse.json({
       posts: localMatches,

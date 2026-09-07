@@ -37,7 +37,7 @@ export async function processAndSavePosts(
   const existingPostIds = new Set<string>();
 
   // Check local storage first
-  const localItems = getLocalPosts();
+  const localItems = getLocalPosts(userId);
   for (const item of localItems) {
     existingPostIds.add(item.instagram_post_id);
   }
@@ -139,7 +139,7 @@ export async function processAndSavePosts(
   }
 
   // 3. Save to Local Storage (Always guarantees posts are saved immediately)
-  const localResult = saveLocalPosts(enrichedPosts);
+  const localResult = saveLocalPosts(enrichedPosts, userId);
   let addedCount = localResult.added;
 
   // 4. Also upsert into Supabase if configured

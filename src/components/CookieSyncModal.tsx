@@ -1,7 +1,7 @@
 'use client';
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Key, X, Loader2, CheckCircle2, AlertCircle, ArrowRight, HelpCircle, ExternalLink } from 'lucide-react';
+import { useUser } from '@clerk/nextjs';
 
 interface CookieSyncModalProps {
   isOpen: boolean;
@@ -10,12 +10,26 @@ interface CookieSyncModalProps {
 }
 
 export default function CookieSyncModal({ isOpen, onClose, onSuccess }: CookieSyncModalProps) {
+  const { user } = useUser();
+  const igSessionKey = user?.id ? `instasaved_ig_session_${user.id}` : 'instasaved_ig_session_guest';
+
   const [sessionId, setSessionId] = useState('');
   const [maxPosts, setMaxPosts] = useState('100');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [showInstructions, setShowInstructions] = useState(false);
+
+  // Restore saved session ID on modal open
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem(igSessionKey);
+        if (saved) setSessionId(saved);
+      }
+    } catch {}
+  }, [isOpen, igSessionKey]);
 
   if (!isOpen) return null;
 
@@ -44,6 +58,13 @@ export default function CookieSyncModal({ isOpen, onClose, onSuccess }: CookieSy
       if (!response.ok) {
         throw new Error(data.error || 'Failed to sync with Instagram.');
       }
+
+      // Persist session ID for 1-click future refreshes
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(igSessionKey, sessionId.trim());
+        }
+      } catch {}
 
       setSuccessMsg(`Success! Synced ${data.postsAdded || data.totalFetched} saved posts.`);
       setTimeout(() => {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient, isSupabaseConfigured } from '@/lib/supabase/admin';
 import { getLocalPosts, getLocalSyncLog, deleteLocalPost, clearAllLocalPosts } from '@/lib/localStorage';
@@ -13,23 +14,25 @@ export async function GET(req: NextRequest) {
     let posts: SavedPost[] = [];
     let lastSync = null;
 
+    // Determine current user via Clerk
+    let userId: string | null = null;
+    try {
+      const clerkAuth = auth();
+      if (clerkAuth?.userId) userId = clerkAuth.userId;
+    } catch {}
+
+    const targetUserId = userId || 'direct_cookie_user';
+
     // 1. Check Supabase first if configured
     if (isSupabaseConfigured()) {
       try {
-        let userId: string | null = null;
-        try {
-          const supabase = createClient();
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user?.id) userId = user.id;
-        } catch {}
-
         const adminSupabase = createAdminClient();
         let query = adminSupabase
           .from('saved_posts')
           .select('*')
-          .order('saved_at', { ascending: false });
+          .order('saved_at', { ascending: false })
+          .eq('user_id', targetUserId);
 
-        if (userId) query = query.eq('user_id', userId);
         if (category && category !== 'All') query = query.eq('category', category);
         if (mediaType && mediaType !== 'all') query = query.eq('media_type', mediaType);
 
@@ -41,6 +44,7 @@ export async function GET(req: NextRequest) {
         const { data: logs } = await adminSupabase
           .from('sync_logs')
           .select('*')
+          .eq('user_id', targetUserId)
           .order('created_at', { ascending: false })
           .limit(1);
 
@@ -52,7 +56,7 @@ export async function GET(req: NextRequest) {
 
     // 2. If no Supabase posts or not configured, load from local storage
     if (posts.length === 0) {
-      let local = getLocalPosts();
+      let local = getLocalPosts(targetUserId);
       if (category && category !== 'All') {
         local = local.filter((p) => p.category === category);
       }
@@ -60,13 +64,13 @@ export async function GET(req: NextRequest) {
         local = local.filter((p) => p.media_type === mediaType);
       }
       posts = local;
-      lastSync = lastSync || getLocalSyncLog();
+      lastSync = lastSync || getLocalSyncLog(targetUserId);
     }
 
-    // Calculate category counts from active posts
+    // Calculate category counts from user's posts only
     const categoryCounts: Record<string, number> = {};
-    const allStored = getLocalPosts();
-    for (const post of allStored) {
+    const userStored = getLocalPosts(targetUserId);
+    for (const post of userStored) {
       const cat = post.category || 'General';
       categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
     }
@@ -92,12 +96,19 @@ export async function DELETE(req: NextRequest) {
     const clearAll = searchParams.get('all') === 'true';
     const postId = searchParams.get('id');
 
+    let userId: string | null = null;
+    try {
+      const clerkAuth = auth();
+      if (clerkAuth?.userId) userId = clerkAuth.userId;
+    } catch {}
+    const targetUserId = userId || 'direct_cookie_user';
+
     if (clearAll) {
-      clearAllLocalPosts();
+      clearAllLocalPosts(targetUserId);
       if (isSupabaseConfigured()) {
         try {
           const adminSupabase = createAdminClient();
-          await adminSupabase.from('saved_posts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          await adminSupabase.from('saved_posts').delete().eq('user_id', targetUserId);
         } catch {}
       }
       return NextResponse.json({ success: true, message: 'All posts cleared successfully.' });
@@ -107,12 +118,12 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
     }
 
-    deleteLocalPost(postId);
+    deleteLocalPost(postId, targetUserId);
 
     if (isSupabaseConfigured()) {
       try {
         const adminSupabase = createAdminClient();
-        await adminSupabase.from('saved_posts').delete().eq('id', postId);
+        await adminSupabase.from('saved_posts').delete().eq('id', postId).eq('user_id', targetUserId);
       } catch {}
     }
 

@@ -25,6 +25,7 @@ import PostDetailModal from '@/components/PostDetailModal';
 import StatsOverview from '@/components/StatsOverview';
 import CookieSyncModal from '@/components/CookieSyncModal';
 import { SavedPost, MediaType, SyncLog } from '@/types';
+import { useUser } from '@clerk/nextjs';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -40,6 +41,11 @@ export default function DashboardPage() {
   const [selectedPost, setSelectedPost] = useState<SavedPost | null>(null);
   const [lastSync, setLastSync] = useState<SyncLog | null>(null);
   const [cookieModalOpen, setCookieModalOpen] = useState<boolean>(false);
+
+  const { user } = useUser();
+  const igSessionKey = user?.id ? `instasaved_ig_session_${user.id}` : 'instasaved_ig_session_guest';
+  const [syncingLive, setSyncingLive] = useState<boolean>(false);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
 
   // Fetch real posts from API
   const fetchPosts = useCallback(async (cat: string = selectedCategory, media: string = mediaTypeFilter) => {
@@ -68,6 +74,51 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchPosts();
   }, [fetchPosts]);
+
+  // Smart Refresh: Live syncs new posts from Instagram if session is saved, then refreshes posts list
+  const handleSmartRefresh = async () => {
+    let savedSession = '';
+    try {
+      if (typeof window !== 'undefined') {
+        savedSession = localStorage.getItem(igSessionKey) || '';
+      }
+    } catch {}
+
+    if (savedSession) {
+      setSyncingLive(true);
+      setSyncToast('Checking Instagram for newly saved posts...');
+      try {
+        const syncRes = await fetch('/api/import/cookie-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: savedSession.trim(),
+            maxPosts: 25,
+          }),
+        });
+        const syncData = await syncRes.json();
+        if (syncRes.ok) {
+          const added = syncData.postsAdded || 0;
+          if (added > 0) {
+            setSyncToast(`Synced ${added} new post${added > 1 ? 's' : ''} from Instagram!`);
+          } else {
+            setSyncToast('All your saved posts are up to date!');
+          }
+        } else {
+          setSyncToast(syncData.error || 'Sync failed. Please check your session cookie.');
+        }
+      } catch (err: any) {
+        console.warn('Live Instagram refresh notice:', err);
+      } finally {
+        setSyncingLive(false);
+        setTimeout(() => setSyncToast(null), 3500);
+      }
+    } else {
+      setCookieModalOpen(true);
+    }
+
+    await fetchPosts(selectedCategory, mediaTypeFilter);
+  };
 
   // Handle semantic search query
   const handleSearch = async (query: string) => {
@@ -178,12 +229,12 @@ export default function DashboardPage() {
           )}
 
           <button
-            onClick={() => fetchPosts()}
-            disabled={loading}
-            className="p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 transition-colors"
-            title="Refresh"
+            onClick={handleSmartRefresh}
+            disabled={loading || syncingLive}
+            className="p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition-colors relative"
+            title={syncingLive ? 'Syncing latest bookmarks from Instagram...' : 'Live Sync from Instagram'}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-white' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${loading || syncingLive ? 'animate-spin text-white' : ''}`} />
           </button>
 
           <button
@@ -398,6 +449,18 @@ export default function DashboardPage() {
         onClose={() => setCookieModalOpen(false)}
         onSuccess={() => fetchPosts()}
       />
+
+      {/* Live sync toast notification */}
+      {syncToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-neutral-900/95 backdrop-blur-md border border-neutral-700 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs animate-in fade-in slide-in-from-bottom-2">
+          {syncingLive ? (
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+          ) : (
+            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+          )}
+          <span className="font-medium">{syncToast}</span>
+        </div>
+      )}
     </div>
   );
 }

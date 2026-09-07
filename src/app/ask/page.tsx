@@ -20,6 +20,7 @@ import {
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import PostDetailModal from '@/components/PostDetailModal';
 import { SavedPost, RAGCitation } from '@/types';
+import { useUser } from '@clerk/nextjs';
 
 interface ChatMessage {
   id: string;
@@ -55,6 +56,7 @@ const STARTER_PROMPTS = [
 
 export default function AskAssistantPage() {
   const searchParams = useSearchParams();
+  const { user, isLoaded } = useUser();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -62,6 +64,45 @@ export default function AskAssistantPage() {
   const [selectedPost, setSelectedPost] = useState<SavedPost | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initializedFromUrl = useRef(false);
+  const hasLoadedFromStorage = useRef(false);
+
+  // User-isolated storage key
+  const storageKey = user?.id ? `instasaved_rag_chat_${user.id}` : 'instasaved_rag_chat_guest';
+
+  // Load chat history from localStorage on initial render or user change
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isLoaded) return;
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+        } else {
+          setMessages([]);
+        }
+      } else {
+        setMessages([]);
+      }
+    } catch (e) {
+      console.warn('Could not load chat history:', e);
+    }
+    hasLoadedFromStorage.current = true;
+  }, [storageKey, isLoaded]);
+
+  // Save chat history to localStorage whenever messages change
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasLoadedFromStorage.current) return;
+    try {
+      if (messages.length > 0) {
+        localStorage.setItem(storageKey, JSON.stringify(messages));
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    } catch (e) {
+      console.warn('Could not persist chat history:', e);
+    }
+  }, [messages, storageKey]);
 
   // Load all posts for source modal previews
   useEffect(() => {
@@ -175,6 +216,11 @@ export default function AskAssistantPage() {
 
   const handleClearChat = () => {
     setMessages([]);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(storageKey);
+      }
+    } catch {}
   };
 
   return (
