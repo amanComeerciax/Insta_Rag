@@ -46,19 +46,129 @@ export default function CookieSyncModal({ isOpen, onClose, onSuccess }: CookieSy
     setSuccessMsg('');
 
     try {
-      const response = await fetch('/api/import/cookie-sync', {
+      // Parse sessionid and ds_user_id from input
+      const trimmed = sessionId.trim();
+      let cleanSessionId = '';
+      let dsUserId = '';
+      let csrfToken = 'dummya1b2c3d4e5f6g7h8i9j0k1l2m3n4';
+
+      if (trimmed.includes(';') || trimmed.includes('sessionid=')) {
+        const sessionMatch = trimmed.match(/(?:^|;\s*)sessionid=([^;]+)/i);
+        if (sessionMatch) cleanSessionId = sessionMatch[1].trim();
+        const dsMatch = trimmed.match(/(?:^|;\s*)ds_user_id=([^;]+)/i);
+        if (dsMatch) dsUserId = dsMatch[1].trim();
+        const csrfMatch = trimmed.match(/(?:^|;\s*)csrftoken=([^;]+)/i);
+        if (csrfMatch) csrfToken = csrfMatch[1].trim();
+      } else {
+        cleanSessionId = trimmed.replace(/^sessionid=/i, '').replace(/^["']|["']$/g, '').trim();
+      }
+
+      if (!dsUserId) {
+        const idMatch = cleanSessionId.match(/^(\d+)(?:%3[aA]|:)/);
+        if (idMatch) dsUserId = idMatch[1];
+      }
+
+      const targetMax = parseInt(maxPosts, 10);
+      const collectedPosts: any[] = [];
+      const seenIds = new Set<string>();
+      let nextMaxId: string | null = null;
+      let hasMore = true;
+      let pageCount = 0;
+      const maxPages = Math.ceil(targetMax / 20) + 2;
+
+      // Fetch directly from Instagram in the browser (bypasses cloud IP blocks)
+      while (hasMore && collectedPosts.length < targetMax && pageCount < maxPages) {
+        pageCount++;
+        const igUrl = new URL('https://i.instagram.com/api/v1/feed/saved/posts/');
+        if (nextMaxId) igUrl.searchParams.set('max_id', nextMaxId);
+
+        const cookieStr = [
+          `sessionid=${cleanSessionId}`,
+          dsUserId ? `ds_user_id=${dsUserId}` : '',
+          `csrftoken=${csrfToken}`,
+        ].filter(Boolean).join('; ');
+
+        const igRes = await fetch(igUrl.toString(), {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Instagram 278.0.0.19.115 Android (33/13; 420dpi; 1080x2400; samsung; SM-G991B; o1s; exynos2100)',
+            'Cookie': cookieStr,
+            'X-IG-App-ID': '936619743392459',
+            'X-CSRFToken': csrfToken,
+          },
+          credentials: 'omit',
+        });
+
+        if (igRes.status === 302 || igRes.status === 301 || igRes.status === 401 || igRes.status === 403) {
+          throw new Error('Instagram session expired. Please re-copy the fresh "sessionid" cookie from your browser.');
+        }
+
+        if (!igRes.ok) {
+          throw new Error(`Instagram responded with HTTP ${igRes.status}. Try a fresh sessionid.`);
+        }
+
+        const igData = await igRes.json();
+        const items = igData.items || [];
+
+        if (items.length === 0) break;
+
+        for (const item of items) {
+          const media = item.media || item;
+          const code = media.code || media.shortcode || media.id;
+          if (!code || seenIds.has(code)) continue;
+          seenIds.add(code);
+
+          let mediaType = 'photo';
+          if (media.media_type === 2) mediaType = 'reel';
+          else if (media.media_type === 8) mediaType = 'carousel';
+          else if (media.is_video) mediaType = 'video';
+
+          let thumbnailUrl = null;
+          if (media.image_versions2?.candidates?.length > 0) {
+            thumbnailUrl = media.image_versions2.candidates[0].url;
+          }
+
+          collectedPosts.push({
+            post_url: `https://www.instagram.com/p/${code}/`,
+            caption: media.caption?.text || '',
+            thumbnail_url: thumbnailUrl,
+            media_type: mediaType,
+            saved_at: media.taken_at
+              ? new Date(media.taken_at * 1000).toISOString()
+              : new Date().toISOString(),
+          });
+
+          if (collectedPosts.length >= targetMax) break;
+        }
+
+        nextMaxId = igData.next_max_id || null;
+        hasMore = Boolean(igData.more_available && nextMaxId);
+
+        if (hasMore && collectedPosts.length < targetMax) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+
+      if (collectedPosts.length === 0) {
+        throw new Error('No saved posts found. Make sure the sessionid is fresh and you have saved posts on Instagram.');
+      }
+
+      // Send collected posts to our API for MongoDB storage
+      const saveRes = await fetch('/api/import/extension', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-extension-key': 'savesort_ext_secret',
+        },
         body: JSON.stringify({
-          sessionId: sessionId.trim(),
-          maxPosts: parseInt(maxPosts, 10),
+          posts: collectedPosts,
           userId: user?.id || undefined,
         }),
       });
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to sync with Instagram.');
+      const saveData = await saveRes.json();
+      if (!saveRes.ok) {
+        throw new Error(saveData.error || 'Failed to save posts to database.');
       }
 
       // Persist session ID for 1-click future refreshes
@@ -68,7 +178,7 @@ export default function CookieSyncModal({ isOpen, onClose, onSuccess }: CookieSy
         }
       } catch {}
 
-      setSuccessMsg(`Success! Synced ${data.postsAdded || data.totalFetched} saved posts.`);
+      setSuccessMsg(`Success! Synced ${saveData.postsAdded || collectedPosts.length} saved posts to your library.`);
       setTimeout(() => {
         onSuccess();
         onClose();
