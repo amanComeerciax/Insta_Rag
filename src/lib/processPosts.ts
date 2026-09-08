@@ -1,6 +1,7 @@
 import { ParsedInstagramPost, SavedPost } from '@/types';
 import { analyzePostWithGemini, generateEmbedding, generateFallbackAnalysis, generateDeterministicMockVector, delay } from './gemini';
 import { createAdminClient, isSupabaseConfigured } from './supabase/admin';
+import { getPostsCollection, getSyncLogsCollection, isMongoConfigured } from './mongodb';
 import { saveLocalPosts, getLocalPosts } from './localStorage';
 
 export interface ProcessPostsResult {
@@ -36,7 +37,20 @@ export async function processAndSavePosts(
   // 1. Identify existing post IDs to avoid duplicate processing
   const existingPostIds = new Set<string>();
 
-  // Check local storage first
+  // Check MongoDB first if configured
+  if (isMongoConfigured()) {
+    try {
+      const postsCol = await getPostsCollection();
+      const existing = await postsCol
+        .find({ user_id: userId }, { projection: { instagram_post_id: 1 } })
+        .toArray();
+      existing.forEach((p) => existingPostIds.add(p.instagram_post_id));
+    } catch (err: any) {
+      console.warn('[ProcessPosts] Mongo lookup notice:', err?.message || err);
+    }
+  }
+
+  // Check local storage
   const localItems = getLocalPosts(userId);
   for (const item of localItems) {
     existingPostIds.add(item.instagram_post_id);
@@ -140,11 +154,46 @@ export async function processAndSavePosts(
     }
   }
 
-  // 3. Save to Local Storage (Always guarantees posts are saved immediately)
-  const localResult = saveLocalPosts(enrichedPosts, userId);
-  let addedCount = localResult.added;
+  let addedCount = 0;
 
-  // 4. Also upsert into Supabase if configured
+  // 3. Save to MongoDB Atlas (Primary Cloud Database)
+  if (isMongoConfigured() && enrichedPosts.length > 0) {
+    try {
+      const postsCol = await getPostsCollection();
+      const ops = enrichedPosts.map((post) => ({
+        updateOne: {
+          filter: { user_id: userId, instagram_post_id: post.instagram_post_id },
+          update: { $set: post },
+          upsert: true,
+        },
+      }));
+      const bulkRes = await postsCol.bulkWrite(ops);
+      addedCount = (bulkRes.upsertedCount || 0) + (bulkRes.modifiedCount || 0);
+
+      // Save sync log to MongoDB
+      const logsCol = await getSyncLogsCollection();
+      await logsCol.insertOne({
+        id: `sync_${Date.now()}`,
+        user_id: userId,
+        source: source as any,
+        posts_added: bulkRes.upsertedCount || enrichedPosts.length,
+        posts_skipped: skippedCount,
+        status: 'completed',
+        created_at: new Date().toISOString(),
+      });
+    } catch (dbErr: any) {
+      console.error('[ProcessPosts] MongoDB save error:', dbErr);
+      errors.push(`MongoDB save error: ${dbErr?.message || dbErr}`);
+    }
+  }
+
+  // 4. Save to Local Storage (Guarantees fallback on local development)
+  const localResult = saveLocalPosts(enrichedPosts, userId);
+  if (!addedCount) {
+    addedCount = localResult.added;
+  }
+
+  // 5. Also upsert into Supabase if configured
   if (isSupabaseConfigured() && enrichedPosts.length > 0) {
     try {
       const supabase = createAdminClient();

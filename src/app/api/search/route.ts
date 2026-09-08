@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { generateEmbedding } from '@/lib/gemini';
+import { getPostsCollection, isMongoConfigured } from '@/lib/mongodb';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient, isSupabaseConfigured } from '@/lib/supabase/admin';
 import { searchLocalPosts, getLocalPosts } from '@/lib/localStorage';
@@ -24,6 +25,27 @@ export async function POST(req: NextRequest) {
 
     // If query is empty, return latest posts for this user
     if (!query) {
+      if (isMongoConfigured()) {
+        try {
+          const postsCol = await getPostsCollection();
+          const filter: any = { user_id: targetUserId };
+          if (categoryFilter) filter.category = categoryFilter;
+          const data = await postsCol
+            .find(filter)
+            .sort({ saved_at: -1 })
+            .limit(30)
+            .toArray();
+          if (data && data.length > 0) {
+            return NextResponse.json({
+              posts: data,
+              total: data.length,
+              mode: 'all',
+              execution_time_ms: Date.now() - startTime,
+            });
+          }
+        } catch {}
+      }
+
       if (isSupabaseConfigured()) {
         try {
           const adminSupabase = createAdminClient();
@@ -86,8 +108,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Perform Local Vector Similarity Search
-    const localMatches = searchLocalPosts(queryEmbedding, query, categoryFilter);
+    // 2. Perform Vector Similarity Search (from MongoDB or local)
+    let userPosts: SavedPost[] = [];
+    if (isMongoConfigured()) {
+      try {
+        const postsCol = await getPostsCollection();
+        userPosts = (await postsCol.find({ user_id: targetUserId }).toArray()) as SavedPost[];
+      } catch {}
+    }
+
+    const localMatches = searchLocalPosts(queryEmbedding, query, categoryFilter, targetUserId, userPosts);
 
     return NextResponse.json({
       posts: localMatches,

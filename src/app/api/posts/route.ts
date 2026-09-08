@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { getPostsCollection, getSyncLogsCollection, isMongoConfigured } from '@/lib/mongodb';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient, isSupabaseConfigured } from '@/lib/supabase/admin';
 import { getLocalPosts, getLocalSyncLog, deleteLocalPost, clearAllLocalPosts } from '@/lib/localStorage';
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
     const mediaType = searchParams.get('media_type');
 
     let posts: SavedPost[] = [];
-    let lastSync = null;
+    let lastSync: any = null;
 
     // Determine current user via Clerk
     let userId: string | null = null;
@@ -23,8 +24,37 @@ export async function GET(req: NextRequest) {
 
     const targetUserId = userId || 'direct_cookie_user';
 
-    // 1. Check Supabase first if configured
-    if (isSupabaseConfigured()) {
+    // 1. Check MongoDB Atlas (Primary Cloud Database)
+    if (isMongoConfigured()) {
+      try {
+        const postsCol = await getPostsCollection();
+        const filter: any = { user_id: targetUserId };
+        if (category && category !== 'All') filter.category = category;
+        if (mediaType && mediaType !== 'all') filter.media_type = mediaType;
+
+        const mongoPosts = await postsCol
+          .find(filter)
+          .sort({ saved_at: -1 })
+          .toArray();
+
+        if (mongoPosts && mongoPosts.length > 0) {
+          posts = mongoPosts as SavedPost[];
+        }
+
+        const logsCol = await getSyncLogsCollection();
+        const logs = await logsCol
+          .find({ user_id: targetUserId })
+          .sort({ created_at: -1 })
+          .limit(1)
+          .toArray();
+        if (logs && logs[0]) lastSync = logs[0];
+      } catch (mongoErr) {
+        console.warn('[API /api/posts] MongoDB query notice:', mongoErr);
+      }
+    }
+
+    // 2. Fallback to Supabase if configured and no posts from MongoDB
+    if (posts.length === 0 && isSupabaseConfigured()) {
       try {
         const adminSupabase = createAdminClient();
         let query = adminSupabase
@@ -54,7 +84,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. If no Supabase posts or not configured, load from local storage
+    // 3. Fallback to local storage (for local development)
     if (posts.length === 0) {
       let local = getLocalPosts(targetUserId);
       if (category && category !== 'All') {
@@ -67,12 +97,27 @@ export async function GET(req: NextRequest) {
       lastSync = lastSync || getLocalSyncLog(targetUserId);
     }
 
-    // Calculate category counts from user's posts only
+    // Calculate category counts from user's posts
     const categoryCounts: Record<string, number> = {};
-    const userStored = getLocalPosts(targetUserId);
-    for (const post of userStored) {
-      const cat = post.category || 'General';
-      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+    if (isMongoConfigured()) {
+      try {
+        const postsCol = await getPostsCollection();
+        const userAllPosts = await postsCol
+          .find({ user_id: targetUserId }, { projection: { category: 1 } })
+          .toArray();
+        for (const post of userAllPosts) {
+          const cat = post.category || 'General';
+          categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+        }
+      } catch {}
+    }
+
+    if (Object.keys(categoryCounts).length === 0) {
+      const countSource = posts.length > 0 ? posts : getLocalPosts(targetUserId);
+      for (const post of countSource) {
+        const cat = post.category || 'General';
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+      }
     }
 
     return NextResponse.json({
@@ -104,6 +149,12 @@ export async function DELETE(req: NextRequest) {
     const targetUserId = userId || 'direct_cookie_user';
 
     if (clearAll) {
+      if (isMongoConfigured()) {
+        try {
+          const postsCol = await getPostsCollection();
+          await postsCol.deleteMany({ user_id: targetUserId });
+        } catch {}
+      }
       clearAllLocalPosts(targetUserId);
       if (isSupabaseConfigured()) {
         try {
@@ -116,6 +167,16 @@ export async function DELETE(req: NextRequest) {
 
     if (!postId) {
       return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
+    }
+
+    if (isMongoConfigured()) {
+      try {
+        const postsCol = await getPostsCollection();
+        await postsCol.deleteOne({ 
+          $or: [{ id: postId }, { instagram_post_id: postId }], 
+          user_id: targetUserId 
+        });
+      } catch {}
     }
 
     deleteLocalPost(postId, targetUserId);

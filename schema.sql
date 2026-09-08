@@ -1,26 +1,26 @@
 -- ==============================================================================
--- SaveSort AI: Database Schema & Vector Search Configuration
--- Supabase Postgres + pgvector
+-- SaveSort AI / Insta_Rag: Database Schema & Vector Search Configuration
+-- Supabase Postgres + pgvector (Configured for Clerk Authentication)
 -- ==============================================================================
 
 -- 1. Enable the pgvector extension to work with embedding vectors
 create extension if not exists vector;
 
 -- 2. Create saved_posts table
--- Note: Google Gemini's text-embedding-004 model generates 768-dimensional embeddings.
--- If you choose a 1536-dim model or MRL truncation, adjust the vector dimension here accordingly.
 create table if not exists saved_posts (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade not null,
-  instagram_post_id text not null, -- Shortcode or unique identifier from Instagram, used for deduplication
+  id text primary key,
+  user_id text not null, -- Clerk User ID (e.g. user_2tX...)
+  instagram_post_id text not null,
   post_url text not null,
   caption text,
   media_type text default 'photo', -- 'photo', 'video', 'carousel', 'reel'
   thumbnail_url text,
-  ocr_text text, -- Extracted text from media if available
-  ai_summary text, -- Short 1-sentence AI generated summary
-  category text default 'General', -- AI assigned category e.g. "Fonts", "Recipes", "Design"
-  embedding vector(768), -- pgvector embedding for semantic search
+  video_url text,
+  carousel_media_urls text[],
+  ocr_text text,
+  ai_summary text,
+  category text default 'General',
+  embedding vector(768), -- Gemini text-embedding-004 768-D vectors
   saved_at timestamptz default now(),
   created_at timestamptz default now(),
   unique(user_id, instagram_post_id)
@@ -31,69 +31,35 @@ create index if not exists idx_saved_posts_user on saved_posts(user_id);
 create index if not exists idx_saved_posts_category on saved_posts(user_id, category);
 create index if not exists idx_saved_posts_saved_at on saved_posts(user_id, saved_at desc);
 
--- Vector index for cosine similarity search
--- HNSW is modern, works without requiring pre-trained clusters, and delivers fast search results
+-- Vector index for cosine similarity search (HNSW index)
 create index if not exists idx_saved_posts_embedding on saved_posts 
 using hnsw (embedding vector_cosine_ops);
 
--- 4. Create sync_logs table to track export ZIP uploads & Chrome extension syncs
+-- 4. Create sync_logs table
 create table if not exists sync_logs (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade not null,
+  id text primary key,
+  user_id text not null,
   source text not null check (source in ('manual_export', 'extension', 'mock_demo')),
   posts_added int default 0,
   posts_skipped int default 0,
-  status text default 'completed', -- 'processing', 'completed', 'failed'
+  status text default 'completed',
   error_message text,
   created_at timestamptz default now()
 );
 
 create index if not exists idx_sync_logs_user on sync_logs(user_id, created_at desc);
 
--- 5. Row Level Security (RLS) Policies
--- Ensure users can only access their own saved posts and logs
-alter table saved_posts enable row level security;
-alter table sync_logs enable row level security;
-
--- Policies for saved_posts
-create policy "Users can view their own saved posts"
-  on saved_posts for select
-  using (auth.uid() = user_id);
-
-create policy "Users can insert their own saved posts"
-  on saved_posts for insert
-  with check (auth.uid() = user_id);
-
-create policy "Users can update their own saved posts"
-  on saved_posts for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
-create policy "Users can delete their own saved posts"
-  on saved_posts for delete
-  using (auth.uid() = user_id);
-
--- Policies for sync_logs
-create policy "Users can view their own sync logs"
-  on sync_logs for select
-  using (auth.uid() = user_id);
-
-create policy "Users can insert their own sync logs"
-  on sync_logs for insert
-  with check (auth.uid() = user_id);
-
--- 6. Semantic Vector Search RPC function (match_saved_posts)
--- Performs cosine similarity matching against the embedding column
+-- 5. Semantic Vector Search RPC function (match_saved_posts)
 create or replace function match_saved_posts (
   query_embedding vector(768),
   match_threshold float default 0.2,
   match_count int default 20,
-  filter_user_id uuid default null,
+  filter_user_id text default null,
   filter_category text default null
 )
 returns table (
-  id uuid,
-  user_id uuid,
+  id text,
+  user_id text,
   instagram_post_id text,
   post_url text,
   caption text,

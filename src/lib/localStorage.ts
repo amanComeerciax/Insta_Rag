@@ -198,10 +198,11 @@ export function searchLocalPosts(
   queryEmbedding: number[],
   queryText: string,
   categoryFilter?: string | null,
-  userId?: string | null
+  userId?: string | null,
+  customPosts?: SavedPost[]
 ): SavedPost[] {
-  let posts = getLocalPosts();
-  if (userId) {
+  let posts = customPosts && customPosts.length > 0 ? customPosts : getLocalPosts();
+  if (userId && (!customPosts || customPosts.length === 0)) {
     posts = posts.filter((p) => p.user_id === userId);
   }
   if (posts.length === 0) return [];

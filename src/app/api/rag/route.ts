@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { generateEmbedding } from '@/lib/gemini';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient, isSupabaseConfigured } from '@/lib/supabase/admin';
+import { getPostsCollection, isMongoConfigured } from '@/lib/mongodb';
 import { searchLocalPosts, getLocalPosts } from '@/lib/localStorage';
 import { isGroqConfigured, groqChatCompletion } from '@/lib/groq';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -42,7 +43,16 @@ export async function POST(req: NextRequest) {
     }
 
     const targetUserId = userId || 'direct_cookie_user';
-    const userPosts = getLocalPosts(targetUserId);
+    let userPosts: SavedPost[] = [];
+    if (isMongoConfigured()) {
+      try {
+        const postsCol = await getPostsCollection();
+        userPosts = (await postsCol.find({ user_id: targetUserId }).toArray()) as SavedPost[];
+      } catch {}
+    }
+    if (userPosts.length === 0) {
+      userPosts = getLocalPosts(targetUserId);
+    }
 
     // Identify previously discussed active post(s) in ongoing chat
     const activePosts = activePostIds
@@ -83,9 +93,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If no Supabase posts, search local storage with strict user isolation
+    // If no Supabase posts, search MongoDB/local storage with strict user isolation
     if (relevantPosts.length === 0) {
-      relevantPosts = searchLocalPosts(queryEmbedding, effectiveQuery, null, targetUserId);
+      relevantPosts = searchLocalPosts(queryEmbedding, effectiveQuery, null, targetUserId, userPosts);
     }
 
     // Anchoring for Follow-up questions: Ensure the actively discussed post is prioritized

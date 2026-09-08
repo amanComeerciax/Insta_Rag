@@ -211,12 +211,12 @@ export default function DashboardPage() {
     return new Date(b.saved_at).getTime() - new Date(a.saved_at).getTime();
   });
 
-  // Default Categories to show if empty
+  // Categories to show in sidebar
   const defaultCategoryList = [
-    { name: 'Design & Typography', count: categories['Design & Typography'] ?? 12 },
-    { name: 'Recipes & Cooking', count: categories['Recipes & Cooking'] ?? 2 },
-    { name: 'General', count: categories['General'] ?? 2 },
-    { name: 'Coding & Tech', count: categories['Coding & Tech'] ?? 1 },
+    { name: 'Design & Typography', count: categories['Design & Typography'] || 0 },
+    { name: 'Recipes & Cooking', count: categories['Recipes & Cooking'] || 0 },
+    { name: 'Coding & Tech', count: categories['Coding & Tech'] || 0 },
+    { name: 'General', count: categories['General'] || 0 },
   ];
 
   const activeCategoryEntries = Object.keys(categories).length > 0
@@ -296,7 +296,7 @@ export default function DashboardPage() {
                   <span>All Posts</span>
                 </div>
                 <span className="text-[11px] font-mono text-neutral-400">
-                  {posts.length || 17}
+                  {posts.length}
                 </span>
               </button>
 

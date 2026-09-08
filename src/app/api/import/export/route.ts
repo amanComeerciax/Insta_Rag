@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { parseInstagramExportZip } from '@/lib/zipParser';
 import { processAndSavePosts } from '@/lib/processPosts';
 import { createClient } from '@/lib/supabase/server';
@@ -24,17 +25,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Determine user identity
-    let userId = 'demo-user-default';
+    // Determine user identity via Clerk
+    let userId = 'direct_cookie_user';
     try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user?.id) {
-        userId = user.id;
+      const clerkAuth = auth();
+      if (clerkAuth?.userId) {
+        userId = clerkAuth.userId;
       }
-    } catch {
-      // Continue with demo user if session not active
-    }
+    } catch {}
 
     // Convert file to ArrayBuffer and parse ZIP contents
     const arrayBuffer = await file.arrayBuffer();
