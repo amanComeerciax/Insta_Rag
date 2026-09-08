@@ -3,7 +3,7 @@ import './globals.css';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import AiBotWidget from '@/components/AiBotWidget';
-import { ClerkProvider } from '@clerk/nextjs';
+import { ClerkProvider, SignedIn } from '@clerk/nextjs';
 import { dark } from '@clerk/themes';
 
 export const metadata: Metadata = {
@@ -45,7 +45,9 @@ export default function RootLayout({
               {children}
             </main>
             <Footer />
-            <AiBotWidget />
+            <SignedIn>
+              <AiBotWidget />
+            </SignedIn>
           </div>
         </body>
       </html>

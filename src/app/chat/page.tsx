@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { 
   MessageSquare, 
   Key, 
@@ -11,7 +12,8 @@ import {
   RefreshCw, 
   AlertCircle,
   Clock,
-  ArrowRight
+  ArrowRight,
+  ArrowLeft
 } from 'lucide-react';
 
 interface Thread {
@@ -133,10 +135,19 @@ export default function ChatPage() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-5">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <MessageSquare className="w-5 h-5 text-white" />
-            Instagram Direct Messages
-          </h1>
+          <div className="flex items-center gap-3 mb-1">
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800 hover:border-neutral-700 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Dashboard</span>
+            </Link>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-white" />
+              Instagram Direct Messages
+            </h1>
+          </div>
           <p className="text-xs text-neutral-400 mt-0.5">
             Directly browse and summarize your Instagram chats using your session key
           </p>

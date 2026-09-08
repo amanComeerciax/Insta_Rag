@@ -1,11 +1,14 @@
-import { SignUp } from '@clerk/nextjs';
+import { SignIn } from '@clerk/nextjs';
 
-export default function SignUpPage() {
+export default function LoginPage() {
   return (
     <div className="min-h-[85vh] flex flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-md flex flex-col items-center">
-        <SignUp
-          routing="hash"
+        <SignIn
+          path="/login"
+          routing="path"
+          signUpUrl="/signup"
+          fallbackRedirectUrl="/dashboard"
           appearance={{
             elements: {
               rootBox: 'w-full flex justify-center',

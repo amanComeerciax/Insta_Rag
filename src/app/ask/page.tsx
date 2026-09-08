@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { 
   Sparkles, 
   Send, 
@@ -26,7 +27,8 @@ import {
   Printer,
   Palette,
   Code2,
-  ChevronDown
+  ChevronDown,
+  ArrowLeft
 } from 'lucide-react';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import PostDetailModal from '@/components/PostDetailModal';
@@ -481,6 +483,14 @@ export default function AskAssistantPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-neutral-300 hover:text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 transition-colors shadow-sm"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-neutral-400" />
+            <span>Dashboard</span>
+          </Link>
+
           {allPosts.length > 0 && (
             <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-neutral-400 bg-neutral-900/80 border border-neutral-800">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
