@@ -19,10 +19,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Clean session ID string
-    const cleanSessionId = sessionId.replace(/^sessionid=/i, '').replace(/;.*$/, '').trim();
+    // Robustly parse session ID and extract ds_user_id & csrftoken if full cookie was pasted
+    let cleanSessionId = '';
+    let dsUserId = '';
+    let csrfToken = 'dummya1b2c3d4e5f6g7h8i9j0k1l2m3n4';
+    const trimmedInput = sessionId.trim();
 
-    // Determine user identity
+    if (trimmedInput.includes(';') || trimmedInput.includes('sessionid=')) {
+      const sessionMatch = trimmedInput.match(/(?:^|;\s*)sessionid=([^;]+)/i);
+      if (sessionMatch) cleanSessionId = sessionMatch[1].trim();
+
+      const dsMatch = trimmedInput.match(/(?:^|;\s*)ds_user_id=([^;]+)/i);
+      if (dsMatch) dsUserId = dsMatch[1].trim();
+
+      const csrfMatch = trimmedInput.match(/(?:^|;\s*)csrftoken=([^;]+)/i);
+      if (csrfMatch) csrfToken = csrfMatch[1].trim();
+    } else {
+      cleanSessionId = trimmedInput.replace(/^sessionid=/i, '').trim();
+    }
+
+    // Remove any surrounding quotes
+    cleanSessionId = cleanSessionId.replace(/^["']|["']$/g, '').trim();
+
+    // Extract ds_user_id from sessionid if formatted as USERID%3A... or USERID:...
+    if (!dsUserId) {
+      const idMatch = cleanSessionId.match(/^(\d+)(?:%3[aA]|:)/);
+      if (idMatch && idMatch[1]) {
+        dsUserId = idMatch[1];
+      }
+    }
+
+    // Determine user identity via Clerk
     let userId = 'direct_cookie_user';
     try {
       const clerkAuth = auth();
@@ -37,13 +64,6 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    // Extract ds_user_id from sessionid if formatted as USERID%3A...
-    let dsUserId = '';
-    const match = cleanSessionId.match(/^(\d+)%/);
-    if (match && match[1]) {
-      dsUserId = match[1];
-    }
-
     const collectedPosts: ParsedInstagramPost[] = [];
     const seenIds = new Set<string>();
     let nextMaxId: string | null = null;
@@ -51,14 +71,28 @@ export async function POST(req: NextRequest) {
     let pageCount = 0;
     const maxPages = Math.ceil(maxPosts / 20) + 2;
 
-    const headers = {
+    const cookieHeader = [
+      `sessionid=${cleanSessionId}`,
+      dsUserId ? `ds_user_id=${dsUserId}` : '',
+      `csrftoken=${csrfToken}`,
+      'ig_did=DUMMY_IG_DID',
+      'ig_nrcb=1',
+    ].filter(Boolean).join('; ');
+
+    const headers: Record<string, string> = {
       'User-Agent':
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Cookie': `sessionid=${cleanSessionId}; ${dsUserId ? `ds_user_id=${dsUserId};` : ''}`,
+      'Cookie': cookieHeader,
       'X-IG-App-ID': '936619743392459', // Official Instagram Web App ID
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRFToken': csrfToken,
       'Accept': '*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
       'Referer': 'https://www.instagram.com/',
+      'Origin': 'https://www.instagram.com',
       'Sec-Fetch-Site': 'same-origin',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Dest': 'empty',
     };
 
     while (hasMore && collectedPosts.length < maxPosts && pageCount < maxPages) {
@@ -75,7 +109,11 @@ export async function POST(req: NextRequest) {
       });
 
       if (response.status === 301 || response.status === 302 || response.status === 400 || response.status === 401 || response.status === 403) {
-        throw new Error('Instagram session expired or invalid. Please re-copy the "sessionid" cookie from your browser.');
+        const location = response.headers.get('location') || '';
+        console.warn(`[CookieSync] Instagram responded with ${response.status}, location: ${location}`);
+        throw new Error(
+          'Instagram session expired or rejected. Please open instagram.com in Chrome, verify you are logged in, and re-copy the fresh "sessionid" cookie.'
+        );
       }
 
       if (!response.ok) {

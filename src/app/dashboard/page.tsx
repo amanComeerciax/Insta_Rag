@@ -24,10 +24,12 @@ import {
   Folder,
   Sun,
   MoreHorizontal,
-  ChevronDown,
   ExternalLink,
   Menu,
-  X
+  X,
+  UploadCloud,
+  Copy,
+  Check
 } from 'lucide-react';
 import PostCard from '@/components/PostCard';
 import PostDetailModal from '@/components/PostDetailModal';
@@ -59,6 +61,29 @@ export default function DashboardPage() {
   const igSessionKey = user?.id ? `instasaved_ig_session_${user.id}` : 'instasaved_ig_session_guest';
   const [syncingLive, setSyncingLive] = useState<boolean>(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
+  const [seedingDemo, setSeedingDemo] = useState<boolean>(false);
+  const [copiedUserId, setCopiedUserId] = useState<boolean>(false);
+
+  // 1-Click Load Sample Demo Posts
+  const handleLoadSamplePosts = async () => {
+    setSeedingDemo(true);
+    setSyncToast('Seeding 27 sample posts into MongoDB Atlas...');
+    try {
+      const res = await fetch('/api/mock', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setSyncToast(`Loaded ${data.count || 27} demo posts into your library!`);
+        await fetchPosts();
+      } else {
+        setSyncToast(data.error || 'Failed to load sample posts.');
+      }
+    } catch {
+      setSyncToast('Network error while loading demo posts.');
+    } finally {
+      setSeedingDemo(false);
+      setTimeout(() => setSyncToast(null), 4000);
+    }
+  };
 
   // Close kebab menu on outside click
   useEffect(() => {
@@ -463,6 +488,16 @@ export default function DashboardPage() {
                     <button
                       onClick={() => {
                         setKebabOpen(false);
+                        handleLoadSamplePosts();
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-neutral-300 hover:text-white hover:bg-white/10 transition-colors text-left"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Load 27 Demo Posts</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setKebabOpen(false);
                         setCookieModalOpen(true);
                       }}
                       className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-neutral-300 hover:text-white hover:bg-white/10 transition-colors text-left"
@@ -704,28 +739,71 @@ export default function DashboardPage() {
             </div>
           ) : (
             /* Empty State */
-            <div className="bg-[#101114] rounded-2xl p-12 text-center border border-neutral-800/80 space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-neutral-900 border border-neutral-800 flex items-center justify-center text-neutral-400 mx-auto">
-                <BookmarkX className="w-6 h-6" />
+            <div className="bg-[#101114] rounded-2xl p-8 sm:p-12 text-center border border-neutral-800/80 space-y-5">
+              <div className="w-14 h-14 rounded-2xl bg-neutral-900 border border-neutral-800 flex items-center justify-center text-neutral-400 mx-auto shadow-inner">
+                <BookmarkX className="w-7 h-7" />
               </div>
-              <div>
-                <h3 className="text-base font-semibold text-white">No Saved Posts Found</h3>
-                <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto leading-relaxed">
+              <div className="max-w-md mx-auto space-y-1.5">
+                <h3 className="text-base sm:text-lg font-bold text-white">No Saved Posts Found</h3>
+                <p className="text-xs text-neutral-400 leading-relaxed">
                   {searchQuery
                     ? `No posts matched "${searchQuery}".`
-                    : 'Your collection is currently empty. Click "Sync with Instagram" or "Direct Cookie Sync" to index your saved bookmarks.'}
+                    : 'Your collection is currently empty. Populate it instantly with 27 curated demo posts, upload your Instagram export ZIP, or sync using the companion Chrome extension.'}
                 </p>
               </div>
 
-              <div className="pt-2">
+              {/* Action Buttons Grid */}
+              <div className="pt-2 flex flex-wrap items-center justify-center gap-3 max-w-xl mx-auto">
+                <button
+                  onClick={handleLoadSamplePosts}
+                  disabled={seedingDemo || loading}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${seedingDemo ? 'animate-spin' : 'fill-black'}`} />
+                  <span>{seedingDemo ? 'Loading Posts...' : '⚡ Load 27 Demo Posts'}</span>
+                </button>
+
+                <Link
+                  href="/onboarding"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-neutral-200 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 transition-colors"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-neutral-400" />
+                  <span>Upload Instagram ZIP</span>
+                </Link>
+
                 <button
                   onClick={() => setCookieModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition-colors shadow"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-neutral-200 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 transition-colors"
                 >
-                  <Key className="w-3.5 h-3.5" />
+                  <Key className="w-3.5 h-3.5 text-blue-400" />
                   <span>Direct Cookie Sync</span>
                 </button>
               </div>
+
+              {/* User ID helper for extension sync */}
+              {user?.id && (
+                <div className="pt-2 text-[11px] text-neutral-500 flex items-center justify-center gap-2">
+                  <span>Your User ID:</span>
+                  <code className="px-1.5 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-300 font-mono text-[10px]">
+                    {user.id}
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(user.id);
+                      setCopiedUserId(true);
+                      setSyncToast('User ID copied to clipboard!');
+                      setTimeout(() => {
+                        setCopiedUserId(false);
+                        setSyncToast(null);
+                      }, 2500);
+                    }}
+                    className="inline-flex items-center gap-1 text-neutral-400 hover:text-white underline text-[10px]"
+                  >
+                    {copiedUserId ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedUserId ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

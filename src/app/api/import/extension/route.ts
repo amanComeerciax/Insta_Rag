@@ -1,56 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { processAndSavePosts } from '@/lib/processPosts';
 import { extractShortcode, detectMediaType } from '@/lib/zipParser';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { ParsedInstagramPost } from '@/types';
 
 export const maxDuration = 60;
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-extension-key, x-user-id',
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 200, headers: corsHeaders });
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
     const extensionKeyHeader = req.headers.get('x-extension-key');
     const expectedKey = process.env.EXTENSION_API_SECRET || 'savesort_ext_secret';
 
-    let userId = 'demo-user-default';
     let isAuthorized = false;
 
-    // 1. Check direct extension secret key
-    if (extensionKeyHeader && extensionKeyHeader === expectedKey) {
-      isAuthorized = true;
-    }
-
-    // 2. Or verify Supabase JWT token from Authorization header (Bearer <token>)
-    if (!isAuthorized && authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.replace('Bearer ', '').trim();
-      const supabase = createAdminClient();
-      const { data: { user }, error } = await supabase.auth.getUser(token);
-
-      if (!error && user?.id) {
-        userId = user.id;
-        isAuthorized = true;
-      }
-    }
-
-    // If still not authorized, allow local development fallback
-    if (!isAuthorized && process.env.NODE_ENV === 'development') {
+    // Check direct extension secret key or allow during development
+    if (
+      (extensionKeyHeader && extensionKeyHeader === expectedKey) ||
+      process.env.NODE_ENV === 'development' ||
+      !process.env.EXTENSION_API_SECRET
+    ) {
       isAuthorized = true;
     }
 
     if (!isAuthorized) {
       return NextResponse.json(
-        { error: 'Unauthorized. Please provide a valid Supabase token or x-extension-key header.' },
-        { status: 401 }
+        { error: 'Unauthorized. Invalid extension secret key.' },
+        { status: 401, headers: corsHeaders }
       );
     }
 
     const body = await req.json();
+
+    // Determine user identity
+    const queryUserId = req.nextUrl?.searchParams?.get('userId');
+    let userId = body.userId || body.user_id || queryUserId || req.headers.get('x-user-id') || null;
+    if (!userId) {
+      try {
+        const clerkAuth = auth();
+        if (clerkAuth?.userId) userId = clerkAuth.userId;
+      } catch {}
+    }
+    userId = userId || 'direct_cookie_user';
+
     const rawPosts = Array.isArray(body) ? body : body.posts;
 
     if (!rawPosts || !Array.isArray(rawPosts) || rawPosts.length === 0) {
       return NextResponse.json(
         { error: 'Invalid payload. Expected an array of post objects under { posts: [...] }.' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -79,29 +86,32 @@ export async function POST(req: NextRequest) {
     if (normalizedPosts.length === 0) {
       return NextResponse.json(
         { error: 'No valid Instagram post URLs detected in payload.' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
-    // Ingest & enrich with Gemini AI
+    // Ingest & enrich with Gemini AI and save to MongoDB Atlas
     const result = await processAndSavePosts(userId, normalizedPosts, 'extension', {
-      batchSize: 5,
-      throttleMs: 300,
+      batchSize: 8,
+      throttleMs: 200,
     });
 
-    return NextResponse.json({
-      success: true,
-      message: `Extension sync finished! Added ${result.added} new saved posts, ${result.skipped} duplicates skipped.`,
-      postsAdded: result.added,
-      postsSkipped: result.skipped,
-      total: result.total,
-      errors: result.errors,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        message: `Extension sync finished! Added ${result.added} new saved posts, ${result.skipped} duplicates skipped.`,
+        postsAdded: result.added,
+        postsSkipped: result.skipped,
+        total: result.total,
+        errors: result.errors,
+      },
+      { headers: corsHeaders }
+    );
   } catch (error: any) {
     console.error('[API /api/import/extension] Ingestion error:', error);
     return NextResponse.json(
       { error: error?.message || 'Failed to ingest extension payload.' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }

@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Key, X, Loader2, CheckCircle2, AlertCircle, ArrowRight, HelpCircle, ExternalLink } from 'lucide-react';
+import { Key, X, Loader2, CheckCircle2, AlertCircle, ArrowRight, HelpCircle, ExternalLink, Eye, EyeOff } from 'lucide-react';
 import { useUser } from '@clerk/nextjs';
 
 interface CookieSyncModalProps {
@@ -14,6 +14,7 @@ export default function CookieSyncModal({ isOpen, onClose, onSuccess }: CookieSy
   const igSessionKey = user?.id ? `instasaved_ig_session_${user.id}` : 'instasaved_ig_session_guest';
 
   const [sessionId, setSessionId] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [maxPosts, setMaxPosts] = useState('100');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -133,13 +134,23 @@ export default function CookieSyncModal({ isOpen, onClose, onSuccess }: CookieSy
               </button>
             </div>
 
-            <input
-              type="password"
-              value={sessionId}
-              onChange={(e) => setSessionId(e.target.value)}
-              placeholder="e.g. 12345678%3Aabc..."
-              className="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-white font-mono"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={sessionId}
+                onChange={(e) => setSessionId(e.target.value)}
+                placeholder="Paste sessionid (or full cookie string) here..."
+                className="w-full pr-10 pl-3 py-2 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-white font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors"
+                title={showPassword ? 'Hide value' : 'Show value'}
+              >
+                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
 
           {/* Collapsible How-To Guide */}

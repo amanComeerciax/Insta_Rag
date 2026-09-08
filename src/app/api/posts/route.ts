@@ -32,10 +32,22 @@ export async function GET(req: NextRequest) {
         if (category && category !== 'All') filter.category = category;
         if (mediaType && mediaType !== 'all') filter.media_type = mediaType;
 
-        const mongoPosts = await postsCol
+        let mongoPosts = await postsCol
           .find(filter)
           .sort({ saved_at: -1 })
           .toArray();
+
+        // If logged-in user has 0 posts, auto-adopt posts synced as guest or extension
+        if (mongoPosts.length === 0 && targetUserId !== 'direct_cookie_user') {
+          const guestCount = await postsCol.countDocuments({ user_id: 'direct_cookie_user' });
+          if (guestCount > 0) {
+            await postsCol.updateMany(
+              { user_id: 'direct_cookie_user' },
+              { $set: { user_id: targetUserId } }
+            );
+            mongoPosts = await postsCol.find(filter).sort({ saved_at: -1 }).toArray();
+          }
+        }
 
         if (mongoPosts && mongoPosts.length > 0) {
           posts = mongoPosts as SavedPost[];

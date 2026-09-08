@@ -2,67 +2,76 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SaveSort AI Companion</title>
+  <title>Insta_Rag Companion</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { width: 330px; background: #000000; color: #ffffff; padding: 16px; font-size: 13px; }
-    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #262626; }
-    .brand { font-weight: 700; font-size: 14px; color: #ffffff; }
-    .status-badge { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: #171717; color: #a3a3a3; border: 1px solid #262626; }
-    .info { font-size: 11px; color: #a3a3a3; margin-bottom: 12px; line-height: 1.4; }
+    body { width: 340px; background: #0a0b0e; color: #ffffff; padding: 16px; font-size: 13px; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #22252a; }
+    .brand { font-weight: 700; font-size: 14px; color: #ffffff; display: flex; align-items: center; gap: 6px; }
+    .status-badge { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: #181a20; color: #a3a3a3; border: 1px solid #282b33; font-weight: 500; }
+    .info { font-size: 11px; color: #9ca3af; margin-bottom: 12px; line-height: 1.4; background: #12141a; padding: 8px 10px; border-radius: 6px; border: 1px solid #1f222b; }
     .field { margin-bottom: 10px; }
-    label { display: block; font-size: 11px; color: #a3a3a3; margin-bottom: 4px; font-weight: 500; }
-    input, select { width: 100%; padding: 8px 10px; background: #0a0a0a; border: 1px solid #262626; border-radius: 6px; color: #fff; font-size: 12px; }
+    label { display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px; font-weight: 500; }
+    input, select { width: 100%; padding: 8px 10px; background: #14161d; border: 1px solid #282b33; border-radius: 6px; color: #fff; font-size: 12px; transition: border-color 0.2s; }
     input:focus, select:focus { outline: none; border-color: #ffffff; }
-    .btn { width: 100%; padding: 10px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 12px; }
+    .btn { width: 100%; padding: 10px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 6px; }
     .btn-primary { background: #ffffff; color: #000000; margin-top: 6px; }
-    .btn-primary:hover { background: #e5e5e5; }
+    .btn-primary:hover { background: #e5e7eb; }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-secondary { background: #171717; color: #ffffff; border: 1px solid #262626; margin-top: 6px; }
-    .btn-secondary:hover { background: #262626; }
-    .results { margin-top: 12px; padding: 10px; border-radius: 6px; background: #0a0a0a; border: 1px solid #262626; font-size: 11px; display: none; line-height: 1.4; }
-    .link { display: block; text-align: center; margin-top: 12px; color: #737373; font-size: 11px; text-decoration: none; }
+    .results { margin-top: 12px; padding: 10px; border-radius: 6px; background: #14161d; border: 1px solid #282b33; font-size: 11px; display: none; line-height: 1.4; }
+    .link { display: block; text-align: center; margin-top: 12px; color: #9ca3af; font-size: 11px; text-decoration: none; transition: color 0.2s; }
     .link:hover { color: #ffffff; }
-    .tip { font-size: 10px; color: #525252; margin-top: 8px; line-height: 1.3; }
+    .details-toggle { font-size: 11px; color: #9ca3af; cursor: pointer; margin-top: 6px; display: block; text-align: right; }
+    .details-toggle:hover { color: #fff; }
+    .advanced-section { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #282b33; }
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="brand">SaveSort AI</div>
+    <div class="brand">
+      <span>🔖 Insta_Rag Sync</span>
+    </div>
     <span class="status-badge" id="badge">Ready</span>
   </div>
 
-  <p class="info">
-    Open <strong style="color:#fff;">instagram.com/.../saved/</strong> and select how many posts to auto-scroll & sync.
+  <p class="info" id="statusNotice">
+    💡 Make sure you are logged into <strong style="color:#fff;">instagram.com</strong> in your browser.
   </p>
 
   <div class="field">
-    <label for="postLimit">Auto-Scroll Post Target</label>
+    <label for="postLimit">Post Sync Target</label>
     <select id="postLimit">
-      <option value="30">Auto-Scroll ~30 posts (Fast • ~10 sec)</option>
-      <option value="60" selected>Auto-Scroll ~60 posts (~20 sec)</option>
-      <option value="120">Auto-Scroll ~120 posts (~40 sec)</option>
-      <option value="visible">Only visible posts on screen (No scroll)</option>
+      <option value="30" selected>⚡ Fast Sync (~30 saved posts)</option>
+      <option value="60">⚡ Deep Sync (~60 saved posts)</option>
+      <option value="120">⚡ Full Sync (~120 saved posts)</option>
+      <option value="visible">Only visible posts on screen</option>
     </select>
   </div>
 
   <button id="autoSyncBtn" class="btn btn-primary">
-    ⚡ Auto-Scroll & Sync Posts
+    ⚡ Sync Instagram Saved Posts
   </button>
 
   <div id="results" class="results"></div>
 
-  <p class="tip">
-    💡 For 1,000+ old historical posts, download Instagram's official export ZIP from Settings and drop it in SaveSort AI (/onboarding).
-  </p>
+  <span id="toggleAdvanced" class="details-toggle">⚙️ Advanced Settings</span>
 
-  <a href="http://localhost:3000/dashboard" target="_blank" class="link">
-    Open Dashboard →
+  <div id="advancedSection" class="advanced-section">
+    <div class="field">
+      <label for="userIdInput">Clerk User ID (Optional)</label>
+      <input type="text" id="userIdInput" placeholder="e.g. user_2tX..." />
+    </div>
+
+    <div class="field">
+      <label for="apiUrl">App Endpoint</label>
+      <input type="text" id="apiUrl" value="https://insta-rag-swart.vercel.app/api/import/extension" />
+    </div>
+    <input type="hidden" id="secretKey" value="savesort_ext_secret" />
+  </div>
+
+  <a href="https://insta-rag-swart.vercel.app/dashboard" target="_blank" class="link">
+    Open Insta_Rag Dashboard →
   </a>
-
-  <!-- Hidden config -->
-  <input type="hidden" id="apiUrl" value="http://localhost:3000/api/import/extension" />
-  <input type="hidden" id="secretKey" value="savesort_ext_secret" />
 
   <script src="popup.js"></script>
 </body>
