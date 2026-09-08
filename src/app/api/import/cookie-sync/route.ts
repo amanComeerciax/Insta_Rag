@@ -84,18 +84,23 @@ export async function POST(req: NextRequest) {
 
     const headers: Record<string, string> = {
       'User-Agent':
-        'Instagram 278.0.0.19.115 Android (33/13; 420dpi; 1080x2400; samsung; SM-G991B; o1s; exynos2100)',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Cookie': cookieHeader,
       'X-IG-App-ID': '936619743392459',
-      'X-Requested-With': 'com.instagram.android',
+      'X-Requested-With': 'XMLHttpRequest',
       'X-CSRFToken': csrfToken,
       'Accept': '*/*',
       'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://www.instagram.com/',
+      'Origin': 'https://www.instagram.com',
+      'Sec-Fetch-Site': 'same-origin',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Dest': 'empty',
     };
 
     while (hasMore && collectedPosts.length < maxPosts && pageCount < maxPages) {
       pageCount++;
-      const url = new URL('https://i.instagram.com/api/v1/feed/saved/posts/');
+      const url = new URL('https://www.instagram.com/api/v1/feed/saved/posts/');
       if (nextMaxId) {
         url.searchParams.set('max_id', nextMaxId);
       }
@@ -106,7 +111,7 @@ export async function POST(req: NextRequest) {
         redirect: 'manual',
       });
 
-      if (response.status === 301 || response.status === 302 || response.status === 400 || response.status === 401 || response.status === 403) {
+      if (response.status === 301 || response.status === 302 || response.status === 401 || response.status === 403) {
         const location = response.headers.get('location') || '';
         console.warn(`[CookieSync] Instagram responded with ${response.status}, location: ${location}`);
         throw new Error(
