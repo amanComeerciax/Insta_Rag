@@ -84,23 +84,18 @@ export async function POST(req: NextRequest) {
 
     const headers: Record<string, string> = {
       'User-Agent':
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Instagram 278.0.0.19.115 Android (33/13; 420dpi; 1080x2400; samsung; SM-G991B; o1s; exynos2100)',
       'Cookie': cookieHeader,
-      'X-IG-App-ID': '936619743392459', // Official Instagram Web App ID
-      'X-Requested-With': 'XMLHttpRequest',
+      'X-IG-App-ID': '936619743392459',
+      'X-Requested-With': 'com.instagram.android',
       'X-CSRFToken': csrfToken,
       'Accept': '*/*',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': 'https://www.instagram.com/',
-      'Origin': 'https://www.instagram.com',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Dest': 'empty',
     };
 
     while (hasMore && collectedPosts.length < maxPosts && pageCount < maxPages) {
       pageCount++;
-      const url = new URL('https://www.instagram.com/api/v1/feed/saved/posts/');
+      const url = new URL('https://i.instagram.com/api/v1/feed/saved/posts/');
       if (nextMaxId) {
         url.searchParams.set('max_id', nextMaxId);
       }
