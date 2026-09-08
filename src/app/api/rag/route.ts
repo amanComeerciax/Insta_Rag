@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const query = (body.query || '').trim();
     const history = Array.isArray(body.history) ? body.history : [];
+    const activePostIds: string[] = Array.isArray(body.activePostIds) ? body.activePostIds : [];
 
     if (!query) {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 });
@@ -41,9 +42,26 @@ export async function POST(req: NextRequest) {
     }
 
     const targetUserId = userId || 'direct_cookie_user';
+    const userPosts = getLocalPosts(targetUserId);
+
+    // Identify previously discussed active post(s) in ongoing chat
+    const activePosts = activePostIds
+      .map((id) => userPosts.find((p) => p.id === id || p.instagram_post_id === id))
+      .filter((p): p is SavedPost => Boolean(p));
+
+    // Detect if this is a follow-up query (pronouns, continuation, or active post reference)
+    const followUpSignals = /\b(iska|iski|iske|usme|isme|uska|uski|uske|woh|wo|ye|yeh|it|its|this|that|these|those|same|code|slide|slides|creator|author|maker|fonts?|colors?|link|steps?|features?|more|detail|details)\b/i;
+    const isFollowUp = history.length > 0 && (followUpSignals.test(query) || (activePosts.length > 0 && query.split(/\s+/).length <= 8));
+
+    // Synthesize effective search query for follow-up queries
+    let effectiveQuery = query;
+    if (isFollowUp && activePosts.length > 0) {
+      const activeTopic = activePosts[0].caption?.slice(0, 70) || activePosts[0].ai_summary || activePosts[0].category || '';
+      effectiveQuery = `${query} ${activeTopic}`.trim();
+    }
 
     // 1. RETRIEVAL: Generate query embedding and find relevant posts
-    const queryEmbedding = await generateEmbedding(query);
+    const queryEmbedding = await generateEmbedding(effectiveQuery);
     let relevantPosts: SavedPost[] = [];
 
     // Check Supabase if configured
@@ -67,16 +85,32 @@ export async function POST(req: NextRequest) {
 
     // If no Supabase posts, search local storage with strict user isolation
     if (relevantPosts.length === 0) {
-      relevantPosts = searchLocalPosts(queryEmbedding, query, null, targetUserId);
+      relevantPosts = searchLocalPosts(queryEmbedding, effectiveQuery, null, targetUserId);
     }
 
-    // If query is broad and semantic similarity returned 0, take this user's recent bookmarks
+    // Anchoring for Follow-up questions: Ensure the actively discussed post is prioritized
+    if (isFollowUp && activePosts.length > 0) {
+      const activeId = activePosts[0].id || activePosts[0].instagram_post_id;
+      relevantPosts = [
+        activePosts[0],
+        ...relevantPosts.filter((p) => p.id !== activeId && p.instagram_post_id !== activeId),
+      ];
+    }
+
+    // Dynamic Relevance Filtering:
     if (relevantPosts.length === 0) {
-      const userPosts = getLocalPosts(targetUserId);
-      relevantPosts = userPosts.slice(0, 4);
+      relevantPosts = userPosts.slice(0, 2);
     } else {
-      // Limit to top 4 most relevant
-      relevantPosts = relevantPosts.slice(0, 4);
+      // If the top post has a high match score (>= 0.80), only keep subsequent posts if they are also closely related (within 0.06)
+      const topScore = relevantPosts[0].similarity || 0;
+      if (topScore >= 0.80) {
+        relevantPosts = relevantPosts.filter((p, index) => {
+          if (index === 0) return true;
+          const score = p.similarity || 0;
+          return score >= 0.78 && (topScore - score) <= 0.06;
+        });
+      }
+      relevantPosts = relevantPosts.slice(0, 3);
     }
 
     // 2. JIT MULTIMODAL VISION OCR: Extract text/fonts from image slides if not already indexed (max 1 post, 6s timeout)
@@ -117,21 +151,36 @@ export async function POST(req: NextRequest) {
     const systemPrompt = `You are "SaveSort Copilot", a friendly personal assistant for the user's saved Instagram bookmarks.
 
 CRITICAL INSTRUCTIONS FOR YOUR ANSWERS:
-1. KEEP IT SIMPLE & SHORT (बहुत लंबा टेक्स्ट नहीं चाहिए):
+1. KEEP IT SIMPLE & SHORT:
    - Do NOT write long essays, deep theoretical breakdowns, or walls of text.
    - The user wants a clean, simple, and direct answer that can be understood in 10 seconds.
 2. FORMATTING:
    - Use clean bullet points or a small 1-table format.
    - Keep points short (1-2 lines per point).
    - Avoid redundant sub-headings, repeated introductions, or filler text.
-3. LANGUAGE:
-   - If the user asks in Hindi or Hinglish, reply in simple, natural Hinglish/Hindi so it's super easy to understand.
+   - Do NOT put simple font names or color names inside backtick code blocks unless it is actual programming code.
+3. LANGUAGE (DEFAULT: ENGLISH):
+   - By default, ALWAYS provide your response and follow-up suggestions in clear, concise, professional English.
+   - ONLY if the user explicitly asks their question in Hindi or Hinglish, then match their language and reply in simple, natural Hinglish/Hindi.
+   - If the user's prompt is in English, NEVER reply in Hindi or Hinglish.
 4. EXACT CONTENT FROM POSTS & OCR:
    - If asked about fonts: List the font names and 1-line simple use-case.
    - If asked about reels/videos: Explain the main point in 2-3 simple bullet points.
    - If asked about code: Provide the clean code snippet with 1 sentence explaining where to paste it.
-5. SOURCE REFERENCE:
-   - Mention simply: "[Source: Post #1]" at the relevant point.
+5. NO INLINE SOURCE CITATIONS & NO HASHTAGS (STRICT RULE):
+   - NEVER write "[Source: Post #1]", "[Post #1]", "Source: Post...", or any source citation tags in your answer text.
+   - The application automatically displays the relevant source card below your answer, so repeating source tags inside your answer text is strictly forbidden.
+   - NEVER include social media hashtags (e.g. #webdesign, #food, #dailyui, #tags). Do not output '#' tags.
+   - Keep your response pure, clean, and elegant.
+6. SUGGESTED NEXT QUESTIONS (SMART FOLLOW-UPS):
+   - At the very end of your response, output exactly 3 short, clickable follow-up questions relevant to this answer.
+   - Language of suggestions must match the response: English by default; Hinglish only if user asked in Hindi/Hinglish.
+   - Format them strictly as:
+[SUGGESTIONS]
+Suggested question 1
+Suggested question 2
+Suggested question 3
+[/SUGGESTIONS]
 
 === USER'S RETRIEVED SAVED POSTS ===
 ${contextSnippets || 'No relevant posts found in the library for this query.'}
@@ -184,12 +233,16 @@ ${contextSnippets || 'No relevant posts found in the library for this query.'}
 
           const chat = model.startChat({ history: formattedHistory });
           const result = await chat.sendMessage(query);
-          const answer = result.response.text();
+          const rawAnswer = result.response.text();
 
-          if (answer) {
+          if (rawAnswer) {
+            const finalSources = filterSourcesForAnswer(rawAnswer, sources);
+            const { cleanText, suggestions } = extractSuggestions(rawAnswer, relevantPosts[0]?.category);
+            const answer = cleanAnswerText(cleanText);
             return NextResponse.json({
               answer,
-              sources,
+              sources: finalSources,
+              suggestions,
               provider: 'gemini',
               modelUsed: modelName,
             });
@@ -207,16 +260,20 @@ ${contextSnippets || 'No relevant posts found in the library for this query.'}
       for (const modelName of groqCandidateModels) {
         try {
           console.log(`[RAG] Querying Groq ${modelName}...`);
-          const answer = await groqChatCompletion(chatMessages, {
+          const rawAnswer = await groqChatCompletion(chatMessages, {
             model: modelName,
             temperature: 0.3,
             maxTokens: 1000,
           });
 
-          if (answer) {
+          if (rawAnswer) {
+            const finalSources = filterSourcesForAnswer(rawAnswer, sources);
+            const { cleanText, suggestions } = extractSuggestions(rawAnswer, relevantPosts[0]?.category);
+            const answer = cleanAnswerText(cleanText);
             return NextResponse.json({
               answer,
-              sources,
+              sources: finalSources,
+              suggestions,
               provider: 'groq',
               modelUsed: modelName,
             });
@@ -239,3 +296,136 @@ ${contextSnippets || 'No relevant posts found in the library for this query.'}
     );
   }
 }
+
+/**
+ * Filter sources to strictly the posts that were actually cited by the AI,
+ * or the single most relevant post if one post has a commanding lead.
+ */
+function filterSourcesForAnswer(answer: string, allSources: RAGCitation[]): RAGCitation[] {
+  if (!allSources || allSources.length <= 1) return allSources;
+
+  // 1. Detect all explicit citations like [Source: Post #1], [Source: Post #2], Post #1, etc.
+  const citedIndices = new Set<number>();
+  const citationRegex = /\[Source:\s*Post\s*#?(\d+)\]/gi;
+  let match;
+  while ((match = citationRegex.exec(answer)) !== null) {
+    const idx = parseInt(match[1], 10) - 1;
+    if (idx >= 0 && idx < allSources.length) {
+      citedIndices.add(idx);
+    }
+  }
+
+  // Also check for explicit mentions like "Post #1" or "Post #2" in the answer
+  if (citedIndices.size === 0) {
+    const postMentionRegex = /\bPost\s*#?(\d+)\b/gi;
+    while ((match = postMentionRegex.exec(answer)) !== null) {
+      const idx = parseInt(match[1], 10) - 1;
+      if (idx >= 0 && idx < allSources.length) {
+        citedIndices.add(idx);
+      }
+    }
+  }
+
+  // If the AI explicitly referenced specific post(s), ONLY show those cited posts!
+  if (citedIndices.size > 0) {
+    return allSources.filter((_, idx) => citedIndices.has(idx));
+  }
+
+  // 2. If no explicit post index was cited, check if the top post has a high score and clear lead
+  const topScore = allSources[0].similarity || 0;
+  if (topScore >= 0.80) {
+    const filtered = allSources.filter((s, idx) => {
+      if (idx === 0) return true;
+      return (s.similarity || 0) >= 0.78 && (topScore - (s.similarity || 0)) <= 0.05;
+    });
+    return filtered.length > 0 ? filtered : [allSources[0]];
+  }
+
+  // Fallback: Return at most top 2
+  return allSources.slice(0, 2);
+}
+
+/**
+ * Cleans inline citation tags ([Source: Post #1], [Post #1]), source labels,
+ * and social hashtags so the response is clean, elegant, and uncluttered.
+ */
+function cleanAnswerText(text: string): string {
+  if (!text) return '';
+
+  return text
+    // Remove bracketed source citations: [Source: Post #1], [Source: Post 1], [Source: ...], [Post #1]
+    .replace(/\[Source:\s*[^\]]+\]/gi, '')
+    .replace(/\[Post\s*#?\d+\]/gi, '')
+    // Remove unbracketed source citations: (Source: Post #1), Source: Post #1
+    .replace(/\(?Source:\s*Post\s*#?\d+\)?/gi, '')
+    // Remove standalone Post #X references at the end of lines/sentences
+    .replace(/(?:[-–—\s]+)?Post\s*#\d+/gi, '')
+    // Remove social media hashtags (e.g. #webdesign, #uiux, #eatly, #food, etc.)
+    // Matches # followed by word characters, ignoring 3/6-digit hex color codes like #D41B27
+    .replace(/(^|\s)#(?!([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b)[a-zA-Z_][a-zA-Z0-9_-]*/g, '$1')
+    // Clean up empty parentheses or brackets left behind like () or []
+    .replace(/\(\s*\)/g, '')
+    .replace(/\[\s*\]/g, '')
+    // Clean up whitespace before punctuation
+    .replace(/[ \t]+([.,;:!])/g, '$1')
+    // Remove dangling empty tag headers (e.g. "Tags:", "Hashtags:")
+    .replace(/^(?:Tags|Hashtags|Related tags):\s*$/gim, '')
+    // Remove double/trailing spaces on each line
+    .split('\n')
+    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trimEnd())
+    .join('\n')
+    // Collapse 3+ consecutive newlines to 2
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Extracts suggested follow-up questions from AI response ([SUGGESTIONS]...[/SUGGESTIONS])
+ * and provides contextual fallbacks if not present.
+ */
+function extractSuggestions(rawText: string, category?: string): { cleanText: string; suggestions: string[] } {
+  let suggestions: string[] = [];
+  let cleanText = rawText;
+
+  // 1. Extract [SUGGESTIONS]...[/SUGGESTIONS] block
+  const match = rawText.match(/\[SUGGESTIONS\]([\s\S]*?)\[\/SUGGESTIONS\]/i);
+  if (match) {
+    const lines = match[1]
+      .split('\n')
+      .map((l) => l.replace(/^[-*•\d.)\s]+/, '').trim())
+      .filter((l) => l.length > 0 && l.length < 100);
+
+    if (lines.length > 0) {
+      suggestions = lines.slice(0, 3);
+    }
+    // Strip the block completely from visible text
+    cleanText = rawText.replace(/\[SUGGESTIONS\][\s\S]*?\[\/SUGGESTIONS\]/gi, '').trim();
+  }
+
+  // 2. Fallback smart contextual suggestions if AI didn't output [SUGGESTIONS]
+  if (suggestions.length === 0) {
+    const cat = (category || '').toLowerCase();
+    if (cat.includes('design') || cat.includes('typography') || cat.includes('coding') || cat.includes('tech')) {
+      suggestions = [
+        '💻 Generate CSS and HTML code for this design',
+        '🎨 What other similar design posts did I bookmark?',
+        '📱 How does the mobile version look?',
+      ];
+    } else if (cat.includes('recipe') || cat.includes('food') || cat.includes('cooking')) {
+      suggestions = [
+        '🍲 What are the key ingredients and steps?',
+        '🥗 What other food bookmarks do I have saved?',
+        '⏱️ How long does this dish take to prepare?',
+      ];
+    } else {
+      suggestions = [
+        '🔍 Tell me more details about this bookmark',
+        '📌 What other related posts do I have saved?',
+        '💡 What is the key takeaway in 2 sentences?',
+      ];
+    }
+  }
+
+  return { cleanText, suggestions };
+}
+

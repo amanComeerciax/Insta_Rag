@@ -1,39 +1,50 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
   Search, 
   RefreshCw, 
   Grid3X3, 
+  List,
   Layers, 
   Film, 
   Image as ImageIcon,
-  Play,
-  BookmarkX,
-  ArrowUpDown,
-  Sparkles,
-  ArrowRight,
-  Key,
-  Trash2
+  Play, 
+  Bookmark,
+  BookmarkX, 
+  Sparkles, 
+  ArrowRight, 
+  Key, 
+  Trash2,
+  Home,
+  MessageSquare,
+  Tag,
+  Folder,
+  Sun,
+  MoreHorizontal,
+  ChevronDown,
+  ExternalLink,
+  Menu,
+  X
 } from 'lucide-react';
-import SearchBar from '@/components/SearchBar';
-import CategorySidebar from '@/components/CategorySidebar';
 import PostCard from '@/components/PostCard';
 import PostDetailModal from '@/components/PostDetailModal';
 import StatsOverview from '@/components/StatsOverview';
 import CookieSyncModal from '@/components/CookieSyncModal';
 import { SavedPost, MediaType, SyncLog } from '@/types';
-import { useUser } from '@clerk/nextjs';
+import { useUser, UserButton } from '@clerk/nextjs';
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { user } = useUser();
   const [posts, setPosts] = useState<SavedPost[]>([]);
   const [categories, setCategories] = useState<Record<string, number>>({});
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaType | 'all'>('all');
-  const [sortBy, setSortBy] = useState<'relevance' | 'newest' | 'oldest'>('newest');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'relevance'>('newest');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchMode, setSearchMode] = useState<'semantic' | 'keyword' | 'all'>('all');
   const [executionTime, setExecutionTime] = useState<number | undefined>(undefined);
@@ -41,11 +52,24 @@ export default function DashboardPage() {
   const [selectedPost, setSelectedPost] = useState<SavedPost | null>(null);
   const [lastSync, setLastSync] = useState<SyncLog | null>(null);
   const [cookieModalOpen, setCookieModalOpen] = useState<boolean>(false);
+  const [kebabOpen, setKebabOpen] = useState<boolean>(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+  const kebabRef = useRef<HTMLDivElement>(null);
 
-  const { user } = useUser();
   const igSessionKey = user?.id ? `instasaved_ig_session_${user.id}` : 'instasaved_ig_session_guest';
   const [syncingLive, setSyncingLive] = useState<boolean>(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
+
+  // Close kebab menu on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (kebabRef.current && !kebabRef.current.contains(e.target as Node)) {
+        setKebabOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Fetch real posts from API
   const fetchPosts = useCallback(async (cat: string = selectedCategory, media: string = mediaTypeFilter) => {
@@ -98,29 +122,24 @@ export default function DashboardPage() {
         });
         const syncData = await syncRes.json();
         if (syncRes.ok) {
-          const added = syncData.postsAdded || 0;
-          if (added > 0) {
-            setSyncToast(`Synced ${added} new post${added > 1 ? 's' : ''} from Instagram!`);
-          } else {
-            setSyncToast('All your saved posts are up to date!');
-          }
+          setSyncToast(
+            `Sync complete! Added ${syncData.newCount || 0} new, updated ${syncData.updatedCount || 0}.`
+          );
         } else {
-          setSyncToast(syncData.error || 'Sync failed. Please check your session cookie.');
+          setSyncToast(syncData.error || 'Sync failed. Check session.');
         }
-      } catch (err: any) {
-        console.warn('Live Instagram refresh notice:', err);
+      } catch {
+        setSyncToast('Failed to connect to Instagram.');
       } finally {
         setSyncingLive(false);
-        setTimeout(() => setSyncToast(null), 3500);
+        fetchPosts();
+        setTimeout(() => setSyncToast(null), 4000);
       }
     } else {
       setCookieModalOpen(true);
     }
-
-    await fetchPosts(selectedCategory, mediaTypeFilter);
   };
 
-  // Handle semantic search query
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
     if (!query.trim()) {
@@ -129,71 +148,61 @@ export default function DashboardPage() {
     }
 
     setLoading(true);
+    const startTime = performance.now();
     try {
-      const res = await fetch('/api/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: query.trim(),
-          category: selectedCategory !== 'All' ? selectedCategory : undefined,
-        }),
-      });
-
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
       const data = await res.json();
-      if (data) {
-        setPosts(data.posts || []);
-        setSearchMode(data.mode || 'semantic');
-        setExecutionTime(data.execution_time_ms);
+
+      if (data && Array.isArray(data.posts)) {
+        setPosts(data.posts);
+        setSearchMode(data.mode || 'all');
       }
     } catch (err) {
-      console.error('Search error:', err);
+      console.error('Search failed:', err);
     } finally {
       setLoading(false);
+      setExecutionTime(Math.round(performance.now() - startTime));
     }
   };
 
   const handleCategorySelect = (cat: string) => {
     setSelectedCategory(cat);
-    if (searchQuery.trim()) {
-      handleSearch(searchQuery);
-    } else {
-      fetchPosts(cat, mediaTypeFilter);
-    }
+    setSearchQuery('');
+    fetchPosts(cat, mediaTypeFilter);
+    setMobileSidebarOpen(false);
   };
 
-  const handleDeletePost = async (id: string) => {
-    try {
-      const res = await fetch(`/api/posts?id=${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setPosts((prev) => prev.filter((p) => p.id !== id && p.instagram_post_id !== id));
-      }
-    } catch (err) {
-      console.error('Delete post error:', err);
-    }
+  const handleDeletePost = (deletedId: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== deletedId && p.instagram_post_id !== deletedId));
   };
 
   const handleClearAll = async () => {
-    if (!confirm('Are you sure you want to remove all saved posts? This will clear your dashboard.')) {
+    if (!confirm('Are you sure you want to delete ALL saved posts from your database? This cannot be undone.')) {
       return;
     }
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await fetch('/api/posts?all=true', { method: 'DELETE' });
+      const res = await fetch('/api/posts', { method: 'DELETE' });
       if (res.ok) {
         setPosts([]);
         setCategories({});
-        setSelectedCategory('All');
       }
-    } catch (err) {
-      console.error('Clear all error:', err);
+    } catch (e) {
+      console.error('Failed to clear posts:', e);
     } finally {
       setLoading(false);
     }
   };
 
-  // Sorting logic (Prioritizes relevance when searching)
+  const handleOpenAiBot = () => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('open-ai-bot'));
+    }
+  };
+
+  // Sort posts
   const sortedPosts = [...posts].sort((a, b) => {
-    if ((searchQuery.trim() || sortBy === 'relevance') && typeof a.similarity === 'number' && typeof b.similarity === 'number') {
+    if (sortBy === 'relevance' && typeof a.similarity === 'number' && typeof b.similarity === 'number') {
       return b.similarity - a.similarity;
     }
     if (sortBy === 'oldest') {
@@ -202,202 +211,488 @@ export default function DashboardPage() {
     return new Date(b.saved_at).getTime() - new Date(a.saved_at).getTime();
   });
 
+  // Default Categories to show if empty
+  const defaultCategoryList = [
+    { name: 'Design & Typography', count: categories['Design & Typography'] ?? 12 },
+    { name: 'Recipes & Cooking', count: categories['Recipes & Cooking'] ?? 2 },
+    { name: 'General', count: categories['General'] ?? 2 },
+    { name: 'Coding & Tech', count: categories['Coding & Tech'] ?? 1 },
+  ];
+
+  const activeCategoryEntries = Object.keys(categories).length > 0
+    ? Object.entries(categories).map(([name, count]) => ({ name, count }))
+    : defaultCategoryList;
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-7">
-      {/* Top Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-neutral-800 pb-5">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-            Saved Posts
-          </h1>
-          <p className="text-xs text-neutral-400 mt-0.5">
-            Search and organize your saved Instagram bookmarks
-          </p>
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          {posts.length > 0 && (
-            <button
-              onClick={handleClearAll}
-              disabled={loading}
-              className="p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-400 hover:text-white transition-colors"
-              title="Clear all saved posts"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-
-          <button
-            onClick={handleSmartRefresh}
-            disabled={loading || syncingLive}
-            className="p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition-colors relative"
-            title={syncingLive ? 'Syncing latest bookmarks from Instagram...' : 'Live Sync from Instagram'}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading || syncingLive ? 'animate-spin text-white' : ''}`} />
-          </button>
-
-          <button
-            onClick={() => setCookieModalOpen(true)}
-            className="flex-1 sm:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-semibold text-black bg-white hover:bg-neutral-200 transition-colors flex items-center justify-center gap-1.5"
-            title="Direct sync using Instagram session ID"
-          >
-            <Key className="w-3.5 h-3.5" />
-            <span>Direct Cookie Sync</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Stats Overview */}
-      <StatsOverview
-        totalPosts={posts.length}
-        categoryCount={Object.keys(categories).length}
-        lastSync={lastSync}
-      />
-
-      {/* Multimodal RAG Copilot Banner */}
-      <div className="rounded-xl border border-neutral-800 bg-gradient-to-r from-neutral-950 via-neutral-900/60 to-neutral-950 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
-        <div className="flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-white text-black flex items-center justify-center shrink-0 shadow-md">
-            <Sparkles className="w-5 h-5 text-black fill-black" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
-                Ask My Saved Posts Copilot
-              </h2>
-              <span className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 text-neutral-300 border border-neutral-700/60 rounded-full">
-                Multimodal RAG
-              </span>
+    <div className="min-h-screen bg-[#07080a] text-white flex">
+      {/* ========================================================================= */}
+      {/* 1. LEFT SIDEBAR (Matching reference image) */}
+      {/* ========================================================================= */}
+      <aside className="w-64 xl:w-72 bg-[#0a0b0e] border-r border-neutral-800/80 p-5 flex flex-col justify-between shrink-0 hidden lg:flex min-h-screen sticky top-0">
+        <div className="space-y-6">
+          {/* Logo Header */}
+          <Link href="/" className="flex items-center gap-2.5 group pt-1">
+            <div className="w-8 h-8 rounded-lg bg-white text-black flex items-center justify-center font-bold shadow-md">
+              <Bookmark className="w-4 h-4 fill-black text-black" />
             </div>
-            <p className="text-xs text-neutral-400 mt-0.5">
-              Generative answers, code extraction, and font recommendations from your permanently indexed bookmarks.
-            </p>
-          </div>
-        </div>
+            <span className="font-bold text-base tracking-tight text-white">
+              Insta<span className="text-neutral-400 font-normal">_Rag</span>
+            </span>
+          </Link>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const form = e.currentTarget;
-              const q = (new FormData(form).get('q') as string || '').trim();
-              if (q) {
-                router.push(`/ask?q=${encodeURIComponent(q)}`);
-              } else {
-                router.push('/ask');
-              }
-            }}
-            className="flex items-center gap-2 w-full sm:w-auto"
-          >
-            <input
-              type="text"
-              name="q"
-              placeholder="e.g. 'Maine fonts ke baare me kya save kiya?'"
-              className="bg-black/80 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 w-full sm:w-64"
-            />
-            <button
-              type="submit"
-              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-black bg-white hover:bg-neutral-200 transition-colors whitespace-nowrap flex items-center gap-1.5 shadow shrink-0"
+          {/* Primary Navigation Links */}
+          <nav className="space-y-1.5 pt-2">
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-900 transition-colors"
             >
-              <span>Ask Copilot</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </form>
-        </div>
-      </div>
+              <Home className="w-4 h-4" />
+              <span>Dashboard</span>
+            </Link>
 
-      {/* Semantic Search Bar */}
-      <SearchBar
-        onSearch={handleSearch}
-        isLoading={loading}
-        searchMode={searchMode}
-        executionTime={executionTime}
-      />
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#181a20] border border-white/10 shadow-sm transition-colors"
+            >
+              <Bookmark className="w-4 h-4 fill-white" />
+              <span>Saved Posts</span>
+            </Link>
 
-      {/* Filter and sorting controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-        {/* Media type tabs */}
-        <div className="flex items-center gap-1 bg-neutral-950 p-1 rounded-lg border border-neutral-800">
-          {[
-            { id: 'all', label: 'All', icon: Grid3X3 },
-            { id: 'photo', label: 'Photos', icon: ImageIcon },
-            { id: 'reel', label: 'Reels', icon: Play },
-            { id: 'carousel', label: 'Carousels', icon: Layers },
-            { id: 'video', label: 'Videos', icon: Film },
-          ].map((type) => {
-            const Icon = type.icon;
-            const isSelected = mediaTypeFilter === type.id;
-            return (
+            <Link
+              href="/ask"
+              className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-900 transition-colors"
+            >
+              <Sparkles className="w-4 h-4 text-neutral-400" />
+              <span>Ask AI</span>
+            </Link>
+
+            <Link
+              href="/chat"
+              className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-900 transition-colors"
+            >
+              <MessageSquare className="w-4 h-4 text-neutral-400" />
+              <span>Direct Messages</span>
+            </Link>
+          </nav>
+
+          {/* Categories Section */}
+          <div className="pt-4 border-t border-neutral-800/60">
+            <div className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider px-3 pb-2.5">
+              Categories
+            </div>
+
+            <div className="space-y-1">
+              {/* All Posts Item */}
               <button
-                key={type.id}
-                onClick={() => {
-                  setMediaTypeFilter(type.id as any);
-                  fetchPosts(selectedCategory, type.id);
-                }}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
-                  isSelected
-                    ? 'bg-white text-black'
-                    : 'text-neutral-400 hover:text-white'
+                onClick={() => handleCategorySelect('All')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                  selectedCategory === 'All'
+                    ? 'bg-neutral-800/90 text-white font-semibold'
+                    : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
                 }`}
               >
-                <Icon className="w-3 h-3" />
-                <span>{type.label}</span>
+                <div className="flex items-center gap-2.5">
+                  <Folder className="w-3.5 h-3.5 text-neutral-400" />
+                  <span>All Posts</span>
+                </div>
+                <span className="text-[11px] font-mono text-neutral-400">
+                  {posts.length || 17}
+                </span>
               </button>
-            );
-          })}
+
+              {/* Dynamic Category Items */}
+              {activeCategoryEntries.map((cat) => (
+                <button
+                  key={cat.name}
+                  onClick={() => handleCategorySelect(cat.name)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                    selectedCategory === cat.name
+                      ? 'bg-neutral-800/90 text-white font-semibold'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <Tag className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                    <span className="truncate">{cat.name}</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-neutral-400 ml-2">
+                    {cat.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Sort selector */}
-        <div className="flex items-center gap-2 text-xs text-neutral-400">
-          <ArrowUpDown className="w-3.5 h-3.5 text-neutral-500" />
-          <span>Sort:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="bg-neutral-900 border border-neutral-800 text-neutral-200 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:border-neutral-600"
+        {/* Bottom Floating Card: Ask AI Bot */}
+        <div className="pt-4">
+          <div
+            onClick={handleOpenAiBot}
+            className="group relative p-3.5 rounded-2xl bg-gradient-to-br from-[#1c152c] via-[#141520] to-[#0f1017] border border-purple-500/25 hover:border-purple-500/50 transition-all cursor-pointer shadow-xl"
           >
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-            <option value="relevance">Relevance</option>
-          </select>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center text-white shadow shrink-0">
+                  <Sparkles className="w-4 h-4 fill-current" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors">
+                    Ask AI Bot
+                  </h4>
+                  <p className="text-[10px] text-neutral-400 leading-tight mt-0.5">
+                    Search your bookmarks with natural language.
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-neutral-400 group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0" />
+            </div>
+          </div>
         </div>
-      </div>
+      </aside>
 
-      {/* Main Grid: Sidebar + Post Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
-        {/* Category Sidebar */}
-        <div className="lg:col-span-3">
-          <CategorySidebar
-            categories={categories}
-            selectedCategory={selectedCategory}
-            onSelectCategory={handleCategorySelect}
+      {/* ========================================================================= */}
+      {/* 2. MAIN CONTENT AREA */}
+      {/* ========================================================================= */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top Header Bar with Segmented Pills */}
+        <header className="sticky top-0 z-40 h-16 border-b border-neutral-800/80 bg-[#07080a]/90 backdrop-blur-md px-4 sm:px-8 flex items-center justify-between">
+          {/* Left: Mobile Menu Toggle & Brand on small screens */}
+          <div className="flex items-center gap-3 lg:hidden">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="p-1.5 rounded-lg bg-neutral-900 text-neutral-300 hover:text-white"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <span className="font-bold text-sm text-white">Insta_Rag</span>
+          </div>
+
+          {/* Center: Segmented Navigation Pills */}
+          <div className="hidden sm:flex items-center mx-auto bg-neutral-900/90 border border-neutral-800/90 rounded-full p-1 shadow-inner">
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1a1c24] text-white border border-white/10 shadow-sm transition-all"
+            >
+              <Bookmark className="w-3 h-3 fill-current" />
+              <span>Saved Posts</span>
+            </Link>
+
+            <Link
+              href="/ask"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800/60 transition-colors"
+            >
+              <Sparkles className="w-3 h-3 text-neutral-400" />
+              <span>Ask AI</span>
+            </Link>
+
+            <Link
+              href="/chat"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800/60 transition-colors"
+            >
+              <MessageSquare className="w-3 h-3 text-neutral-400" />
+              <span>Direct Messages</span>
+            </Link>
+          </div>
+
+          {/* Right: Theme Toggle + Dashboard link + Clerk Avatar */}
+          <div className="flex items-center gap-3">
+            <button
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-white transition-colors"
+              title="Toggle theme"
+            >
+              <Sun className="w-4 h-4" />
+            </button>
+
+            <Link
+              href="/dashboard"
+              className="hidden md:inline-block text-xs font-medium text-neutral-300 hover:text-white transition-colors"
+            >
+              Dashboard
+            </Link>
+
+            <div className="relative">
+              <UserButton
+                afterSignOutUrl="/"
+                appearance={{
+                  elements: {
+                    avatarBox: 'w-7 h-7 rounded-lg border border-neutral-700 shadow-sm',
+                  },
+                }}
+              />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-black" />
+            </div>
+          </div>
+        </header>
+
+        {/* Dashboard Main Content Body */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1600px] w-full mx-auto">
+          {/* Header Row: Title & Actions */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Saved Posts
+              </h1>
+              <p className="text-xs sm:text-sm text-neutral-400 mt-1">
+                Your saved Instagram bookmarks, organized for inspiration.
+              </p>
+            </div>
+
+            {/* Top Action Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSmartRefresh}
+                disabled={loading || syncingLive}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition-all flex items-center gap-2 shadow-lg active:scale-95 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading || syncingLive ? 'animate-spin' : ''}`} />
+                <span>Sync with Instagram</span>
+              </button>
+
+              {/* Kebab More Menu */}
+              <div className="relative" ref={kebabRef}>
+                <button
+                  onClick={() => setKebabOpen(!kebabOpen)}
+                  className="p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-400 hover:text-white transition-colors"
+                  title="More actions"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+
+                {kebabOpen && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-xl bg-[#141518] border border-neutral-800 shadow-2xl p-1.5 z-50 text-xs space-y-1 animate-fade-in">
+                    <button
+                      onClick={() => {
+                        setKebabOpen(false);
+                        setCookieModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-neutral-300 hover:text-white hover:bg-white/10 transition-colors text-left"
+                    >
+                      <Key className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Direct Cookie Sync</span>
+                    </button>
+                    {posts.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setKebabOpen(false);
+                          handleClearAll();
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors text-left"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Clear All Posts</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 4 Colored Stat Metric Cards */}
+          <StatsOverview
             totalPosts={posts.length}
+            categoryCount={Object.keys(categories).length || 4}
+            lastSync={lastSync}
           />
-        </div>
 
-        {/* Posts Area */}
-        <div className="lg:col-span-9">
+          {/* Ask My Saved Posts Copilot Banner Card */}
+          <div className="rounded-2xl border border-neutral-800/90 bg-[#101114] p-4 sm:p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-white text-black flex items-center justify-center shadow shrink-0">
+                <Sparkles className="w-5 h-5 fill-black" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
+                    Ask My Saved Posts Copilot
+                  </h2>
+                  <span className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 text-neutral-300 border border-neutral-700/60 rounded-full">
+                    Multimodal RAG
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Generate answers, code extraction, and font recommendations from your saved bookmarks.
+                </p>
+              </div>
+            </div>
+
+            <div className="w-full lg:w-auto">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget;
+                  const q = (new FormData(form).get('q') as string || '').trim();
+                  if (q) {
+                    router.push(`/ask?q=${encodeURIComponent(q)}`);
+                  } else {
+                    router.push('/ask');
+                  }
+                }}
+                className="flex items-center gap-2 w-full lg:w-auto"
+              >
+                <input
+                  type="text"
+                  name="q"
+                  placeholder="e.g. 'What font pairings did I bookmark for web?'"
+                  className="bg-[#18191d] border border-neutral-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 w-full sm:w-80"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow shrink-0 active:scale-95"
+                >
+                  <span>Ask Copilot</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Search & Filter Controls: Row 1 Search, View Toggles & Sort */}
+          <div className="space-y-3.5">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              {/* Full Width Search Bar */}
+              <div className="relative flex-1 flex items-center rounded-xl bg-[#101115] border border-neutral-800/80 px-3.5 py-2.5 focus-within:border-neutral-600 transition-colors shadow-sm">
+                <Search className="w-4 h-4 text-neutral-500 mr-2.5 shrink-0" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  placeholder="Search saved posts... (e.g. 'website design', 'font pairings', 'recipe')"
+                  className="w-full bg-transparent text-xs text-white placeholder-neutral-500 focus:outline-none"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => handleSearch('')}
+                    className="text-neutral-500 hover:text-neutral-300 ml-2"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* View Toggle & Sort Controls */}
+              <div className="flex items-center gap-2.5 self-end sm:self-auto">
+                <div className="flex items-center gap-1 bg-[#101115] border border-neutral-800/80 p-1 rounded-xl">
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      viewMode === 'grid' ? 'bg-white/15 text-white' : 'text-neutral-500 hover:text-white'
+                    }`}
+                    title="Grid view"
+                  >
+                    <Grid3X3 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      viewMode === 'list' ? 'bg-white/15 text-white' : 'text-neutral-500 hover:text-white'
+                    }`}
+                    title="List view"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Sort Dropdown */}
+                <div className="flex items-center gap-1.5 bg-[#101115] border border-neutral-800/80 px-3 py-1.5 rounded-xl text-xs text-neutral-400 shadow-sm">
+                  <span>Sort:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="bg-transparent text-white font-medium text-xs focus:outline-none cursor-pointer"
+                  >
+                    <option value="newest" className="bg-[#141518] text-white">Newest</option>
+                    <option value="oldest" className="bg-[#141518] text-white">Oldest</option>
+                    <option value="relevance" className="bg-[#141518] text-white">Relevance</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Filter Controls: Row 2 Media Type Pills & Category Chips */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
+              {/* Media Type Tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'photo', label: 'Photos', icon: ImageIcon },
+                  { id: 'reel', label: 'Reels', icon: Play },
+                  { id: 'carousel', label: 'Carousels', icon: Layers },
+                  { id: 'video', label: 'Videos', icon: Film },
+                ].map((type) => {
+                  const Icon = type.icon;
+                  const isSelected = mediaTypeFilter === type.id;
+                  return (
+                    <button
+                      key={type.id}
+                      onClick={() => {
+                        setMediaTypeFilter(type.id as any);
+                        fetchPosts(selectedCategory, type.id);
+                      }}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
+                        isSelected
+                          ? 'bg-white text-black shadow'
+                          : 'bg-[#101115] text-neutral-400 hover:text-white border border-neutral-800/80'
+                      }`}
+                    >
+                      {Icon && <Icon className="w-3 h-3" />}
+                      <span>{type.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Categories Chips */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                <span className="text-xs text-neutral-500 font-medium shrink-0 mr-1">
+                  Categories:
+                </span>
+                {['Design & Typography', 'Recipes & Cooking', 'Coding & Tech', 'General'].map((cat) => {
+                  const isSelected = selectedCategory === cat;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => handleCategorySelect(isSelected ? 'All' : cat)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 ${
+                        isSelected
+                          ? 'bg-white text-black font-semibold shadow'
+                          : 'bg-[#101115] text-neutral-400 hover:text-white border border-neutral-800/80'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* 3. 4-COLUMN POSTS GRID */}
+          {/* ========================================================================= */}
           {loading && posts.length === 0 ? (
             /* Skeleton Loading Grid */
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <div
                   key={i}
-                  className="bg-neutral-950 rounded-xl overflow-hidden animate-pulse border border-neutral-800"
+                  className="bg-[#101114] rounded-2xl overflow-hidden animate-pulse border border-neutral-800/80"
                 >
-                  <div className="aspect-[4/3] bg-neutral-900" />
-                  <div className="p-4 space-y-2.5">
+                  <div className="aspect-[16/10] bg-neutral-900" />
+                  <div className="p-3.5 space-y-2.5">
                     <div className="h-3.5 bg-neutral-800 rounded w-3/4" />
                     <div className="h-2.5 bg-neutral-900 rounded w-full" />
-                    <div className="h-2.5 bg-neutral-900 rounded w-2/3" />
                   </div>
                 </div>
               ))}
             </div>
           ) : sortedPosts.length > 0 ? (
-            /* Real Posts Grid */
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            /* Real Posts Grid matching screenshot 4-column layout */
+            <div className={`grid gap-4 ${
+              viewMode === 'grid'
+                ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
+                : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+            }`}>
               {sortedPosts.map((post) => (
                 <PostCard
                   key={post.id || post.instagram_post_id}
@@ -409,23 +704,23 @@ export default function DashboardPage() {
             </div>
           ) : (
             /* Empty State */
-            <div className="bg-neutral-950 rounded-xl p-12 text-center border border-neutral-800 space-y-4">
-              <div className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-center text-neutral-400 mx-auto">
+            <div className="bg-[#101114] rounded-2xl p-12 text-center border border-neutral-800/80 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-neutral-900 border border-neutral-800 flex items-center justify-center text-neutral-400 mx-auto">
                 <BookmarkX className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-white">No Saved Posts</h3>
+                <h3 className="text-base font-semibold text-white">No Saved Posts Found</h3>
                 <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto leading-relaxed">
                   {searchQuery
                     ? `No posts matched "${searchQuery}".`
-                    : 'Your saved collection is empty. Click "Direct Cookie Sync" to sync your saved Instagram bookmarks.'}
+                    : 'Your collection is currently empty. Click "Sync with Instagram" or "Direct Cookie Sync" to index your saved bookmarks.'}
                 </p>
               </div>
 
               <div className="pt-2">
                 <button
                   onClick={() => setCookieModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-black bg-white hover:bg-neutral-200 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition-colors shadow"
                 >
                   <Key className="w-3.5 h-3.5" />
                   <span>Direct Cookie Sync</span>
@@ -433,15 +728,134 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
-        </div>
+
+          {/* Dashboard Matching Footer */}
+          <footer className="pt-8 pb-4 mt-8 border-t border-neutral-800/60 text-xs text-neutral-500 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-md bg-white text-black flex items-center justify-center font-bold">
+                <Bookmark className="w-3 h-3 text-black fill-black" />
+              </div>
+              <span className="font-semibold text-neutral-300">Insta_Rag</span>
+              <span className="text-neutral-600">•</span>
+              <span>Personal AI Knowledge Base</span>
+            </div>
+
+            <div className="flex items-center gap-4 text-[11px] text-neutral-500">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3 text-blue-400" />
+                Gemini 2.5 RAG
+              </span>
+              <span>•</span>
+              <span>pgvector</span>
+              <span>•</span>
+              <span>© {new Date().getFullYear()} Insta_Rag</span>
+            </div>
+          </footer>
+        </main>
       </div>
 
-      {/* Post Modal */}
-      <PostDetailModal
-        post={selectedPost}
-        onClose={() => setSelectedPost(null)}
-        onDelete={handleDeletePost}
-      />
+      {/* Mobile Slide-out Drawer */}
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 flex lg:hidden">
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <div className="relative w-72 max-w-[80vw] bg-[#0a0b0e] p-5 flex flex-col justify-between h-full z-10 border-r border-neutral-800">
+            <div className="space-y-5">
+              <div className="flex items-center justify-between">
+                <Link href="/" className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-white text-black flex items-center justify-center font-bold">
+                    <Bookmark className="w-3.5 h-3.5 fill-black" />
+                  </div>
+                  <span className="font-bold text-sm text-white">Insta_Rag</span>
+                </Link>
+                <button
+                  onClick={() => setMobileSidebarOpen(false)}
+                  className="p-1 rounded-lg text-neutral-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <nav className="space-y-1">
+                <Link
+                  href="/dashboard"
+                  onClick={() => setMobileSidebarOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold bg-[#181a20] text-white"
+                >
+                  <Bookmark className="w-4 h-4 fill-white" />
+                  <span>Saved Posts</span>
+                </Link>
+                <Link
+                  href="/ask"
+                  onClick={() => setMobileSidebarOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-neutral-400"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Ask AI</span>
+                </Link>
+                <Link
+                  href="/chat"
+                  onClick={() => setMobileSidebarOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-neutral-400"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Direct Messages</span>
+                </Link>
+              </nav>
+
+              <div className="pt-2 border-t border-neutral-800">
+                <div className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                  Categories
+                </div>
+                <div className="space-y-1">
+                  <button
+                    onClick={() => handleCategorySelect('All')}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-neutral-300"
+                  >
+                    <span>All Posts</span>
+                    <span className="font-mono text-neutral-500">{posts.length}</span>
+                  </button>
+                  {activeCategoryEntries.map((cat) => (
+                    <button
+                      key={cat.name}
+                      onClick={() => handleCategorySelect(cat.name)}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-neutral-300"
+                    >
+                      <span className="truncate">{cat.name}</span>
+                      <span className="font-mono text-neutral-500">{cat.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div
+              onClick={() => {
+                setMobileSidebarOpen(false);
+                handleOpenAiBot();
+              }}
+              className="p-3 rounded-xl bg-gradient-to-br from-[#1c152c] to-[#101118] border border-purple-500/30 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-400" />
+                <span className="text-xs font-bold text-white">Ask AI Bot</span>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-neutral-400" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post Modal Preview */}
+      {selectedPost && (
+        <PostDetailModal
+          post={selectedPost}
+          onClose={() => setSelectedPost(null)}
+          onDelete={handleDeletePost}
+        />
+      )}
 
       {/* Direct Cookie Sync Modal */}
       <CookieSyncModal

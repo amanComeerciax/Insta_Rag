@@ -2,10 +2,18 @@
 
 import React from 'react';
 import NextLink from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Bookmark, LayoutDashboard, MessageSquare, Sparkles } from 'lucide-react';
 import { SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
 
 export default function Navbar() {
+  const pathname = usePathname();
+
+  // On Dashboard, the dedicated full-bleed sidebar & top-nav takes over
+  if (pathname === '/dashboard') {
+    return null;
+  }
+
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-black/90 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">

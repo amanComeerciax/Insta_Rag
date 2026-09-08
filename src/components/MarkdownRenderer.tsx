@@ -8,9 +8,20 @@ interface MarkdownRendererProps {
 }
 
 export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
+  // Strip any inline source tags, post references, and hashtag clutter so user gets clean, readable text
+  const cleanedContent = (content || '')
+    .replace(/\[Source:\s*[^\]]+\]/gi, '')
+    .replace(/\[Post\s*#?\d+\]/gi, '')
+    .replace(/\(?Source:\s*Post\s*#?\d+\)?/gi, '')
+    .replace(/(?:[-–—\s]+)?Post\s*#\d+/gi, '')
+    .replace(/(^|\s)#(?!([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b)[a-zA-Z_][a-zA-Z0-9_-]*/g, '$1')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\[\s*\]/g, '')
+    .replace(/^(?:Tags|Hashtags|Related tags):\s*$/gim, '');
+
   // Split content by code blocks ```lang ... ```
   const parts: React.ReactNode[] = [];
-  const lines = content.split('\n');
+  const lines = cleanedContent.split('\n');
 
   let inCodeBlock = false;
   let codeLanguage = '';
@@ -330,16 +341,9 @@ function formatInline(text: string): React.ReactNode {
       );
     }
 
-    // Source Citation badges: [Source: Post #4] or [Post #1]
+    // Source Citation badges: [Source: Post #4] or [Post #1] (suppressed to keep text clean)
     if (part.startsWith('[Source:') || part.match(/^\[Post\s*#[^\]]+\]$/)) {
-      return (
-        <span
-          key={index}
-          className="inline-flex items-center px-2 py-0.5 mx-0.5 rounded-md text-[11px] font-medium bg-neutral-900 text-neutral-300 border border-neutral-700/80 shadow-sm"
-        >
-          {part}
-        </span>
-      );
+      return null;
     }
 
     // Mention @username

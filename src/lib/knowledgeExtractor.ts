@@ -15,6 +15,10 @@ export function assemblePostKnowledge(post: SavedPost): string {
   parts.push(`[Post ID: ${post.instagram_post_id}]`);
   parts.push(`Category: ${post.category || 'General'}`);
   parts.push(`Media Type: ${post.media_type}`);
+  const slideCount = post.carousel_media_urls && post.carousel_media_urls.length > 0
+    ? post.carousel_media_urls.length
+    : (post.thumbnail_url ? 1 : 0);
+  parts.push(`Total Slides / Images: ${slideCount} ${post.media_type === 'carousel' ? 'slides' : post.media_type === 'reel' ? 'reel video' : 'image'}`);
   parts.push(`Saved Date: ${post.saved_at || post.created_at}`);
 
   if (post.ai_summary) {

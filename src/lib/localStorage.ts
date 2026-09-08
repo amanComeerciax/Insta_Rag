@@ -177,6 +177,20 @@ export function clearAllLocalPosts(userId?: string | null): boolean {
   }
 }
 
+const QUERY_STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from',
+  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+  'this', 'that', 'these', 'those', 'my', 'your', 'his', 'her', 'its', 'our', 'their',
+  'what', 'which', 'who', 'whom', 'whose', 'when', 'where', 'why', 'how', 'all', 'any',
+  'post', 'posts', 'reel', 'reels', 'video', 'videos', 'photo', 'photos', 'instagram', 'saved',
+  'you', 'me', 'we', 'i', 'know', 'tell', 'show', 'give', 'about', 'find', 'see', 'look', 'want',
+  'website', 'websites', 'site', 'sites', 'page', 'pages', 'online',
+  // Hindi / Hinglish common stop-words:
+  'ye', 'yeh', 'woh', 'wo', 'kya', 'hai', 'he', 'ho', 'h', 'ka', 'ke', 'ki', 'ko', 'se', 'me', 'mein', 'mai',
+  'baare', 'bare', 'batao', 'batav', 'bataiye', 'karo', 'kuch', 'bhi', 'aur', 'par', 'pe', 'ek', 'koi',
+  'dikhao', 'bata', 'dekh', 'samjhao', 'jante', 'jaante', 'pata'
+]);
+
 /**
  * Strict in-memory semantic vector and keyword search
  */
@@ -193,7 +207,15 @@ export function searchLocalPosts(
   if (posts.length === 0) return [];
 
   const lowerQuery = queryText.toLowerCase().trim();
-  const queryTokens = lowerQuery.split(/\s+/).filter((t) => t.length > 1);
+  let meaningfulTokens = lowerQuery
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 1 && !QUERY_STOP_WORDS.has(t));
+
+  // Fallback if all tokens were in stop words (e.g. "show websites")
+  if (meaningfulTokens.length === 0) {
+    meaningfulTokens = lowerQuery.split(/\s+/).filter((t) => t.length > 2);
+  }
 
   // Score posts by vector cosine similarity + keyword boost
   const scored = posts
@@ -207,17 +229,26 @@ export function searchLocalPosts(
         similarity = cosineSimilarity(queryEmbedding, post.embedding);
       }
 
-      // 2. Keyword check across caption, summary, and category
-      const postText = `${post.caption || ''} ${post.ai_summary || ''} ${post.category || ''}`.toLowerCase();
+      // 2. Keyword check across caption, summary, category, and OCR text
+      const postText = `${post.caption || ''} ${post.ai_summary || ''} ${post.category || ''} ${post.ocr_text || ''}`.toLowerCase();
 
-      if (lowerQuery && postText.includes(lowerQuery)) {
+      // Check if full meaningful query is present in text
+      const meaningfulPhrase = meaningfulTokens.join(' ');
+      if (meaningfulPhrase.length >= 4 && postText.includes(meaningfulPhrase)) {
         hasDirectKeywordMatch = true;
-        similarity = Math.max(similarity, 0.85);
-      } else if (queryTokens.length > 0) {
-        const matchesCount = queryTokens.filter((token) => postText.includes(token)).length;
+        similarity = Math.max(similarity, 0.95);
+      } else if (meaningfulTokens.length > 0) {
+        const matchesCount = meaningfulTokens.filter((token) => postText.includes(token)).length;
+        const matchRatio = matchesCount / meaningfulTokens.length;
+
         if (matchesCount > 0) {
           hasDirectKeywordMatch = true;
-          similarity = Math.max(similarity, 0.70 + (matchesCount / queryTokens.length) * 0.20);
+          // Direct keyword matches get top priority (0.88 - 0.98)
+          similarity = Math.max(similarity, 0.88 + matchRatio * 0.10);
+        } else {
+          // If a post has ZERO keyword match with meaningful query terms, cap its similarity
+          // so pseudo-random mock vectors never outrank real keyword matches!
+          similarity = Math.min(similarity, 0.65);
         }
       }
 
@@ -229,14 +260,14 @@ export function searchLocalPosts(
     });
 
   // Strict filtering:
-  // If user searched for a specific query (e.g. "font"), only return posts that:
+  // Only return posts that:
   // - Either have a direct keyword match (hasDirectKeywordMatch = true)
-  // - OR have high semantic similarity (>= 0.60)
+  // - OR have high semantic similarity (>= 0.70)
   return scored
     .filter((p) => {
       if (!lowerQuery) return true;
       if (p.hasDirectKeywordMatch) return true;
-      return p.similarity >= 0.60;
+      return p.similarity >= 0.70;
     })
     .sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
 }
