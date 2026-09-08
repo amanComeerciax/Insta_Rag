@@ -35,28 +35,10 @@ export async function GET(req: NextRequest) {
         if (category && category !== 'All') filter.category = category;
         if (mediaType && mediaType !== 'all') filter.media_type = mediaType;
 
-        let mongoPosts = await postsCol
+        const mongoPosts = await postsCol
           .find(filter)
           .sort({ saved_at: -1 })
           .toArray();
-
-        // If target user has 0 posts, auto-adopt any orphaned posts in database
-        if (mongoPosts.length === 0) {
-          const totalInDb = await postsCol.countDocuments({});
-          if (totalInDb > 0) {
-            if (targetUserId !== 'direct_cookie_user') {
-              // Adopt all database posts to the logged-in user
-              await postsCol.updateMany(
-                { user_id: { $ne: targetUserId } },
-                { $set: { user_id: targetUserId } }
-              );
-              mongoPosts = await postsCol.find(filter).sort({ saved_at: -1 }).toArray();
-            } else {
-              // If guest, show available posts
-              mongoPosts = await postsCol.find({}).sort({ saved_at: -1 }).toArray();
-            }
-          }
-        }
 
         if (mongoPosts && mongoPosts.length > 0) {
           posts = mongoPosts as SavedPost[];
