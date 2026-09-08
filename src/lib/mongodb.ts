@@ -1,7 +1,8 @@
 import { MongoClient, Db, Collection } from 'mongodb';
 import { SavedPost, SyncLog } from '@/types';
 
-const uri = process.env.MONGODB_URI || '';
+const DEFAULT_MONGO_URI = 'mongodb+srv://daisyymodi_db_user:Ti2E8SDEpujzQmJt@cluster0.htv65hv.mongodb.net/instasaved?retryWrites=true&w=majority';
+const uri = process.env.MONGODB_URI || DEFAULT_MONGO_URI;
 
 let client: MongoClient;
 let clientPromise: Promise<MongoClient>;
@@ -23,10 +24,11 @@ if (uri) {
 export default clientPromise;
 
 export function isMongoConfigured(): boolean {
+  const uriStr = process.env.MONGODB_URI || DEFAULT_MONGO_URI;
   return Boolean(
-    process.env.MONGODB_URI &&
-    !process.env.MONGODB_URI.includes('<username>') &&
-    !process.env.MONGODB_URI.includes('placeholder')
+    uriStr &&
+    !uriStr.includes('<username>') &&
+    !uriStr.includes('placeholder')
   );
 }
 

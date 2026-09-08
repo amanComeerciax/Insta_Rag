@@ -15,12 +15,15 @@ export async function GET(req: NextRequest) {
     let posts: SavedPost[] = [];
     let lastSync: any = null;
 
-    // Determine current user via Clerk
-    let userId: string | null = null;
-    try {
-      const clerkAuth = auth();
-      if (clerkAuth?.userId) userId = clerkAuth.userId;
-    } catch {}
+    // Determine current user via query param or Clerk
+    const queryUserId = searchParams.get('userId');
+    let userId: string | null = queryUserId || null;
+    if (!userId) {
+      try {
+        const clerkAuth = auth();
+        if (clerkAuth?.userId) userId = clerkAuth.userId;
+      } catch {}
+    }
 
     const targetUserId = userId || 'direct_cookie_user';
 
@@ -37,15 +40,21 @@ export async function GET(req: NextRequest) {
           .sort({ saved_at: -1 })
           .toArray();
 
-        // If logged-in user has 0 posts, auto-adopt posts synced as guest or extension
-        if (mongoPosts.length === 0 && targetUserId !== 'direct_cookie_user') {
-          const guestCount = await postsCol.countDocuments({ user_id: 'direct_cookie_user' });
-          if (guestCount > 0) {
-            await postsCol.updateMany(
-              { user_id: 'direct_cookie_user' },
-              { $set: { user_id: targetUserId } }
-            );
-            mongoPosts = await postsCol.find(filter).sort({ saved_at: -1 }).toArray();
+        // If target user has 0 posts, auto-adopt any orphaned posts in database
+        if (mongoPosts.length === 0) {
+          const totalInDb = await postsCol.countDocuments({});
+          if (totalInDb > 0) {
+            if (targetUserId !== 'direct_cookie_user') {
+              // Adopt all database posts to the logged-in user
+              await postsCol.updateMany(
+                { user_id: { $ne: targetUserId } },
+                { $set: { user_id: targetUserId } }
+              );
+              mongoPosts = await postsCol.find(filter).sort({ saved_at: -1 }).toArray();
+            } else {
+              // If guest, show available posts
+              mongoPosts = await postsCol.find({}).sort({ saved_at: -1 }).toArray();
+            }
           }
         }
 

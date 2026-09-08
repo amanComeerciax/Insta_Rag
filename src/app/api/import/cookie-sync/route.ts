@@ -49,20 +49,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Determine user identity via Clerk
-    let userId = 'direct_cookie_user';
-    try {
-      const clerkAuth = auth();
-      if (clerkAuth?.userId) userId = clerkAuth.userId;
-    } catch {}
+    // Determine user identity via client payload or Clerk
+    let userId = body.userId || body.user_id || null;
+    if (!userId) {
+      try {
+        const clerkAuth = auth();
+        if (clerkAuth?.userId) userId = clerkAuth.userId;
+      } catch {}
+    }
 
-    if (userId === 'direct_cookie_user') {
+    if (!userId || userId === 'direct_cookie_user') {
       try {
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (user?.id) userId = user.id;
       } catch {}
     }
+    userId = userId || 'direct_cookie_user';
 
     const collectedPosts: ParsedInstagramPost[] = [];
     const seenIds = new Set<string>();

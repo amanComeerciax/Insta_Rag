@@ -103,6 +103,7 @@ export default function DashboardPage() {
       const params = new URLSearchParams();
       if (cat !== 'All') params.set('category', cat);
       if (media !== 'all') params.set('media_type', media);
+      if (user?.id) params.set('userId', user.id);
 
       const res = await fetch(`/api/posts?${params.toString()}`);
       const data = await res.json();
@@ -118,7 +119,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCategory, mediaTypeFilter]);
+  }, [selectedCategory, mediaTypeFilter, user?.id]);
 
   useEffect(() => {
     fetchPosts();

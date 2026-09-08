@@ -52,6 +52,7 @@ export default function CookieSyncModal({ isOpen, onClose, onSuccess }: CookieSy
         body: JSON.stringify({
           sessionId: sessionId.trim(),
           maxPosts: parseInt(maxPosts, 10),
+          userId: user?.id || undefined,
         }),
       });
 
