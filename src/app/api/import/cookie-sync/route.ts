@@ -10,7 +10,12 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const sessionId = (body.sessionId || '').trim();
-    const maxPosts = Math.min(parseInt(body.maxPosts || '100', 10), 300);
+    let maxPosts = 100;
+    if (body.maxPosts === 'all') {
+      maxPosts = 9999;
+    } else {
+      maxPosts = parseInt(body.maxPosts || '100', 10) || 100;
+    }
 
     if (!sessionId) {
       return NextResponse.json(

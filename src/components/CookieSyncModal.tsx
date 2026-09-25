@@ -177,6 +177,7 @@ export default function CookieSyncModal({ isOpen, onClose, onSuccess }: CookieSy
               <option value="50">Fetch 50 posts (~5 sec)</option>
               <option value="100">Fetch 100 posts (~10 sec)</option>
               <option value="200">Fetch 200 posts (~20 sec)</option>
+              <option value="all">Fetch ALL posts (up to 60 sec timeout)</option>
             </select>
           </div>
 
