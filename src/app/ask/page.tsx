@@ -461,29 +461,29 @@ export default function AskAssistantPage() {
   return (
     <div className="min-h-[calc(100vh-4rem)] flex flex-col justify-between max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
       {/* Top Google AI Header */}
-      <div className="flex items-center justify-between pb-4 border-b border-neutral-800/80">
-        <div className="flex items-center gap-3">
-          <div className="relative w-10 h-10 rounded-2xl bg-[#1a1b1e] border border-white/10 flex items-center justify-center shadow-lg">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-neutral-800/80">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="relative w-10 h-10 rounded-2xl bg-[#1a1b1e] border border-white/10 flex items-center justify-center shadow-lg shrink-0">
             <div className="absolute -inset-1 bg-gradient-to-r from-blue-500/20 via-purple-500/20 to-pink-500/20 rounded-2xl blur-sm -z-10" />
             <GeminiStar className="w-5 h-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight truncate">
                 SaveSort AI Copilot
               </h1>
-              <span className="flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-medium bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 border border-blue-500/30 text-blue-300 rounded-full shadow-sm">
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-medium bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 border border-blue-500/30 text-blue-300 rounded-full shadow-sm whitespace-nowrap">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
                 Gemini 2.5 RAG
               </span>
             </div>
-            <p className="text-xs text-neutral-400">
+            <p className="text-xs text-neutral-400 mt-1 sm:mt-0 line-clamp-2 sm:line-clamp-1">
               Grounded multimodal search across all your saved Instagram slides, reels, fonts & code
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <Link
             href="/dashboard"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-neutral-300 hover:text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 transition-colors shadow-sm"

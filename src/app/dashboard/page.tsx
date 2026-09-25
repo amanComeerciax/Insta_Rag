@@ -437,12 +437,6 @@ export default function DashboardPage() {
 
           {/* Right: Theme Toggle + Dashboard link + Clerk Avatar */}
           <div className="flex items-center gap-3">
-            <button
-              className="p-1.5 rounded-lg text-neutral-400 hover:text-white transition-colors"
-              title="Toggle theme"
-            >
-              <Sun className="w-4 h-4" />
-            </button>
 
             <Link
               href="/dashboard"
