@@ -59,15 +59,54 @@ export async function POST(req: NextRequest) {
       .map((id) => userPosts.find((p) => p.id === id || p.instagram_post_id === id))
       .filter((p): p is SavedPost => Boolean(p));
 
-    // Detect if this is a follow-up query (pronouns, continuation, or active post reference)
-    const followUpSignals = /\b(iska|iski|iske|usme|isme|uska|uski|uske|woh|wo|ye|yeh|it|its|this|that|these|those|same|code|slide|slides|creator|author|maker|fonts?|colors?|link|steps?|features?|more|detail|details)\b/i;
-    const isFollowUp = history.length > 0 && (followUpSignals.test(query) || (activePosts.length > 0 && query.split(/\s+/).length <= 8));
+    // We now rely on LLM to determine if anchoring is needed
+    let needsAnchoring = false;
 
-    // Synthesize effective search query for follow-up queries
+    // 0. SMART QUERY REFORMULATION (Pre-processing)
     let effectiveQuery = query;
-    if (isFollowUp && activePosts.length > 0) {
-      const activeTopic = activePosts[0].caption?.slice(0, 70) || activePosts[0].ai_summary || activePosts[0].category || '';
-      effectiveQuery = `${query} ${activeTopic}`.trim();
+    let isGreeting = false;
+
+    const historyText = history.slice(-4).map((h: any) => `${h.role}: ${h.parts?.[0]?.text || ''}`).join('\n');
+    const activeContext = activePosts.length > 0 ? `Active Post Context: ${activePosts[0].caption?.slice(0, 100)}` : '';
+    
+    const reformulatePrompt = `You are a search query optimizer.
+User's raw query: "${query}"
+History:
+${historyText}
+${activeContext}
+
+Task:
+1. If the user is ONLY saying a conversational greeting or thanks (e.g., "hi", "hello", "thanks", "kaise ho"), output EXACTLY the word "GREETING".
+2. If the user is explicitly asking a follow-up question about the Active Post Context or their previous conversation (e.g., "usme kaunse fonts the?", "which fonts in the post", "iska link do"), output the prefix "ANCHOR:" followed by 2-5 optimized keywords (e.g. "ANCHOR: typography fonts").
+3. Otherwise (it's a new standalone search like "portfolio regarding post", "show me coffee websites"), output ONLY 3-7 highly optimized English search keywords without any prefix.`;
+
+    try {
+      let reformulated = '';
+      if (isGroqConfigured()) {
+        reformulated = await groqChatCompletion([{ role: 'user', content: reformulatePrompt }], {
+          model: 'llama3-8b-8192',
+          maxTokens: 30,
+        });
+      } else {
+        const genAI = new GoogleGenerativeAI(getGeminiApiKey());
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const result = await model.generateContent(reformulatePrompt);
+        reformulated = result.response.text();
+      }
+
+      const cleanReformulated = reformulated.trim().replace(/^["']|["']$/g, '');
+      if (cleanReformulated.toUpperCase() === 'GREETING') {
+        isGreeting = true;
+      } else if (cleanReformulated.toUpperCase().startsWith('ANCHOR:')) {
+        needsAnchoring = true;
+        effectiveQuery = cleanReformulated.replace(/^ANCHOR:\s*/i, '');
+      } else if (cleanReformulated.length > 2) {
+        effectiveQuery = cleanReformulated;
+      }
+      console.log(`[RAG] Reformulated query: "${query}" -> "${effectiveQuery}" (Anchoring: ${needsAnchoring})`);
+    } catch (err) {
+      console.warn('[RAG] Reformulation failed, using raw query:', err);
+      effectiveQuery = query;
     }
 
     // 1. RETRIEVAL: Generate query embedding and find relevant posts
@@ -93,13 +132,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If no Supabase posts, search MongoDB/local storage with strict user isolation
-    if (relevantPosts.length === 0) {
-      relevantPosts = searchLocalPosts(queryEmbedding, effectiveQuery, null, targetUserId, userPosts);
+    // If no Supabase posts, or just to combine with keyword boosting, search MongoDB/local storage
+    const localMatches = searchLocalPosts(queryEmbedding, effectiveQuery, null, targetUserId, userPosts);
+    
+    // Merge and deduplicate by highest similarity
+    const mergedMap = new Map<string, SavedPost>();
+    for (const p of [...relevantPosts, ...localMatches]) {
+      const id = p.instagram_post_id || p.id;
+      const existing = mergedMap.get(id);
+      if (!existing || (p.similarity || 0) > (existing.similarity || 0)) {
+        mergedMap.set(id, p);
+      }
     }
+    relevantPosts = Array.from(mergedMap.values()).sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
 
     // Anchoring for Follow-up questions: Ensure the actively discussed post is prioritized
-    if (isFollowUp && activePosts.length > 0) {
+    if (needsAnchoring && activePosts.length > 0) {
       const activeId = activePosts[0].id || activePosts[0].instagram_post_id;
       relevantPosts = [
         activePosts[0],
@@ -107,13 +155,14 @@ export async function POST(req: NextRequest) {
       ];
     }
 
-    // Dynamic Relevance Filtering:
-    if (relevantPosts.length === 0) {
-      relevantPosts = userPosts.slice(0, 2);
-    } else {
-      // If the top post has a high match score (>= 0.80), only keep subsequent posts if they are also closely related (within 0.06)
+    // Dynamic Relevance Filtering & Anti-Hallucination:
+    let isIrrelevant = false;
+    if (!isGreeting && relevantPosts.length > 0) {
       const topScore = relevantPosts[0].similarity || 0;
-      if (topScore >= 0.80) {
+      if (topScore < 0.25) {
+        // Strict threshold: If even the best match is poor, flag as irrelevant
+        isIrrelevant = true;
+      } else if (topScore >= 0.80) {
         relevantPosts = relevantPosts.filter((p, index) => {
           if (index === 0) return true;
           const score = p.similarity || 0;
@@ -121,6 +170,10 @@ export async function POST(req: NextRequest) {
         });
       }
       relevantPosts = relevantPosts.slice(0, 3);
+    } else if (isGreeting) {
+      relevantPosts = []; // Skip context for greetings
+    } else {
+      relevantPosts = userPosts.slice(0, 2);
     }
 
     // 2. JIT MULTIMODAL VISION OCR: Extract text/fonts from image slides if not already indexed (max 1 post, 6s timeout)
@@ -132,7 +185,7 @@ export async function POST(req: NextRequest) {
         console.log(`[RAG] JIT extracting visual OCR for post ${targetPost.instagram_post_id}...`);
         await Promise.race([
           extractVisualKnowledgeFromPost(targetPost),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('JIT OCR timeout')), 6000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('JIT OCR timeout')), 3000)),
         ]);
       }
     } catch (ocrErr: any) {
@@ -182,7 +235,12 @@ CRITICAL INSTRUCTIONS FOR YOUR ANSWERS:
    - The application automatically displays the relevant source card below your answer, so repeating source tags inside your answer text is strictly forbidden.
    - NEVER include social media hashtags (e.g. #webdesign, #food, #dailyui, #tags). Do not output '#' tags.
    - Keep your response pure, clean, and elegant.
-6. SUGGESTED NEXT QUESTIONS (SMART FOLLOW-UPS):
+6. ANTI-HALLUCINATION & MISSING CONTEXT:
+   - If the user's query asks for something that is CLEARLY NOT in the provided context posts, DO NOT invent an answer. Polite state: "I couldn't find a saved post matching this exactly in your database."
+   - ${isIrrelevant ? 'CRITICAL: The search system flagged that the retrieved posts are NOT highly relevant to the query. Politely inform the user that you cannot find exactly what they are looking for, but you can try to help with what you have.' : ''}
+7. MULTIMODAL/VIDEO FALLBACK:
+   - If the user asks for deep analysis of a Reel or Video, and the provided text context does not contain enough detail to fully describe the visuals, give a high-level summary and explicitly tell the user to watch the original reel via this format: "To see the exact details, please watch the original reel here: [URL]".
+8. SUGGESTED NEXT QUESTIONS (SMART FOLLOW-UPS):
    - At the very end of your response, output exactly 3 short, clickable follow-up questions relevant to this answer.
    - Language of suggestions must match the response: English by default; Hinglish only if user asked in Hindi/Hinglish.
    - Format them strictly as:
@@ -217,7 +275,38 @@ ${contextSnippets || 'No relevant posts found in the library for this query.'}
       content: query,
     });
 
-    // 4. GENERATION: Multi-tier Model Cascade (Gemini Flash -> Groq OSS)
+    // 4. GENERATION: Multi-tier Model Cascade (Groq OSS -> Gemini Flash)
+    if (isGroqConfigured()) {
+      const groqCandidateModels = ['llama-3.1-70b-versatile', 'llama3-8b-8192', 'mixtral-8x7b-32768'];
+
+      for (const modelName of groqCandidateModels) {
+        try {
+          console.log(`[RAG] Querying Groq ${modelName}...`);
+          const rawAnswer = await groqChatCompletion(chatMessages, {
+            model: modelName,
+            temperature: 0.3,
+            maxTokens: 1000,
+          });
+
+          if (rawAnswer) {
+            const finalSources = filterSourcesForAnswer(rawAnswer, sources);
+            const { cleanText, suggestions } = extractSuggestions(rawAnswer, relevantPosts[0]?.category);
+            const answer = cleanAnswerText(cleanText);
+            return NextResponse.json({
+              answer,
+              sources: finalSources,
+              suggestions,
+              provider: 'groq',
+              modelUsed: modelName,
+            });
+          }
+        } catch (groqErr: any) {
+          console.warn(`[RAG] Groq model ${modelName} error:`, groqErr?.message);
+        }
+      }
+    }
+
+    // Fallback to Gemini
     const geminiKey = getGeminiApiKey();
     if (geminiKey && !geminiKey.includes('your_gemini_api_key')) {
       const geminiCandidateModels = [
@@ -263,39 +352,8 @@ ${contextSnippets || 'No relevant posts found in the library for this query.'}
       }
     }
 
-    // Fallback to Groq with supported models
-    if (isGroqConfigured()) {
-      const groqCandidateModels = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'];
-
-      for (const modelName of groqCandidateModels) {
-        try {
-          console.log(`[RAG] Querying Groq ${modelName}...`);
-          const rawAnswer = await groqChatCompletion(chatMessages, {
-            model: modelName,
-            temperature: 0.3,
-            maxTokens: 1000,
-          });
-
-          if (rawAnswer) {
-            const finalSources = filterSourcesForAnswer(rawAnswer, sources);
-            const { cleanText, suggestions } = extractSuggestions(rawAnswer, relevantPosts[0]?.category);
-            const answer = cleanAnswerText(cleanText);
-            return NextResponse.json({
-              answer,
-              sources: finalSources,
-              suggestions,
-              provider: 'groq',
-              modelUsed: modelName,
-            });
-          }
-        } catch (groqErr: any) {
-          console.warn(`[RAG] Groq model ${modelName} error:`, groqErr?.message);
-        }
-      }
-    }
-
     return NextResponse.json({
-      error: 'AI service is busy or undergoing maintenance. Please try again in a few moments.',
+      error: 'AI service is currently busy or undergoing maintenance. Please try again in a few moments.',
     }, { status: 500 });
 
   } catch (error: any) {

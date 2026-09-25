@@ -145,7 +145,7 @@ export function formatConversationAsMarkdown(
   });
 
   let md = `# ${sessionTitle}\n\n`;
-  md += `> **Generated on:** ${dateStr} by **SaveSort Google AI Mode**\n\n`;
+  md += `> **Generated on:** ${dateStr} by **SaveSort AI Copilot**\n\n`;
   md += `---\n\n`;
 
   messages.forEach((msg, idx) => {

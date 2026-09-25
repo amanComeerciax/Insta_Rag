@@ -148,8 +148,10 @@ export function deleteLocalPost(postId: string, userId?: string | null): boolean
     const filtered = existing.filter((p) => {
       const matchId = p.id === postId || p.instagram_post_id === postId;
       if (!matchId) return true;
-      if (userId) {
-        return (p.user_id || 'direct_cookie_user') !== userId;
+      
+      const pUser = p.user_id || 'direct_cookie_user';
+      if (userId && pUser !== userId && pUser !== 'direct_cookie_user') {
+        return true;
       }
       return false;
     });
@@ -169,7 +171,10 @@ export function clearAllLocalPosts(userId?: string | null): boolean {
       return true;
     }
     const existing = getLocalPosts();
-    const remaining = existing.filter((p) => (p.user_id || 'direct_cookie_user') !== userId);
+    const remaining = existing.filter((p: SavedPost) => {
+      const pUser = p.user_id || 'direct_cookie_user';
+      return pUser !== userId && pUser !== 'direct_cookie_user';
+    });
     fs.writeFileSync(POSTS_FILE, JSON.stringify(remaining, null, 2), 'utf-8');
     return true;
   } catch {

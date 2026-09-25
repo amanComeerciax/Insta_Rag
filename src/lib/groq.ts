@@ -24,7 +24,7 @@ export async function groqChatCompletion(
   const apiKey = getGroqApiKey();
   if (!apiKey) throw new Error('GROQ_API_KEY not configured.');
 
-  const model = options.model || 'openai/gpt-oss-120b';
+  const model = options.model || 'llama3-8b-8192';
 
   const body: any = {
     model,
@@ -84,7 +84,7 @@ Respond ONLY with valid JSON in this exact format:
 
   const content = await groqChatCompletion(
     [{ role: 'user', content: prompt }],
-    { model: 'openai/gpt-oss-120b', jsonMode: true, temperature: 0.2 }
+    { model: 'llama-3.1-70b-versatile', jsonMode: true, temperature: 0.2 }
   );
 
   const parsed = JSON.parse(content);

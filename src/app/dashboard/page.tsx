@@ -144,6 +144,7 @@ export default function DashboardPage() {
           body: JSON.stringify({
             sessionId: savedSession.trim(),
             maxPosts: 25,
+            userId: user?.id || undefined,
           }),
         });
         const syncData = await syncRes.json();
@@ -176,7 +177,11 @@ export default function DashboardPage() {
     setLoading(true);
     const startTime = performance.now();
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const res = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, category: selectedCategory }),
+      });
       const data = await res.json();
 
       if (data && Array.isArray(data.posts)) {
@@ -198,8 +203,15 @@ export default function DashboardPage() {
     setMobileSidebarOpen(false);
   };
 
-  const handleDeletePost = (deletedId: string) => {
+  const handleDeletePost = async (deletedId: string) => {
     setPosts((prev) => prev.filter((p) => p.id !== deletedId && p.instagram_post_id !== deletedId));
+    try {
+      await fetch(`/api/posts?id=${encodeURIComponent(deletedId)}${user?.id ? `&userId=${user.id}` : ''}`, {
+        method: 'DELETE',
+      });
+    } catch (err) {
+      console.error('Failed to delete post:', err);
+    }
   };
 
   const handleClearAll = async () => {
@@ -208,7 +220,10 @@ export default function DashboardPage() {
     }
     setLoading(true);
     try {
-      const res = await fetch('/api/posts', { method: 'DELETE' });
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(igSessionKey);
+      }
+      const res = await fetch(`/api/posts?all=true${user?.id ? `&userId=${user.id}` : ''}`, { method: 'DELETE' });
       if (res.ok) {
         setPosts([]);
         setCategories({});
@@ -350,7 +365,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Bottom Floating Card: Ask AI Bot */}
+        {/* Bottom Floating Card: Ask AI Copilot */}
         <div className="pt-4">
           <div
             onClick={handleOpenAiBot}
@@ -363,7 +378,7 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors">
-                    Ask AI Bot
+                    Ask AI Copilot
                   </h4>
                   <p className="text-[10px] text-neutral-400 leading-tight mt-0.5">
                     Search your bookmarks with natural language.
@@ -531,80 +546,49 @@ export default function DashboardPage() {
             lastSync={lastSync}
           />
 
-          {/* Ask My Saved Posts Copilot Banner Card */}
-          <div className="rounded-2xl border border-neutral-800/90 bg-[#101114] p-4 sm:p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 shadow-xl">
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-xl bg-white text-black flex items-center justify-center shadow shrink-0">
-                <Sparkles className="w-5 h-5 fill-black" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
-                    Ask My Saved Posts Copilot
-                  </h2>
-                  <span className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 text-neutral-300 border border-neutral-700/60 rounded-full">
-                    Multimodal RAG
-                  </span>
-                </div>
-                <p className="text-xs text-neutral-400 mt-0.5">
-                  Generate answers, code extraction, and font recommendations from your saved bookmarks.
-                </p>
-              </div>
-            </div>
-
-            <div className="w-full lg:w-auto">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const form = e.currentTarget;
-                  const q = (new FormData(form).get('q') as string || '').trim();
-                  if (q) {
-                    router.push(`/ask?q=${encodeURIComponent(q)}`);
-                  } else {
-                    router.push('/ask');
-                  }
-                }}
-                className="flex items-center gap-2 w-full lg:w-auto"
-              >
-                <input
-                  type="text"
-                  name="q"
-                  placeholder="e.g. 'What font pairings did I bookmark for web?'"
-                  className="bg-[#18191d] border border-neutral-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 w-full sm:w-80"
-                />
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow shrink-0 active:scale-95"
-                >
-                  <span>Ask Copilot</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </form>
-            </div>
-          </div>
 
           {/* Search & Filter Controls: Row 1 Search, View Toggles & Sort */}
           <div className="space-y-3.5">
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               {/* Full Width Search Bar */}
-              <div className="relative flex-1 flex items-center rounded-xl bg-[#101115] border border-neutral-800/80 px-3.5 py-2.5 focus-within:border-neutral-600 transition-colors shadow-sm">
-                <Search className="w-4 h-4 text-neutral-500 mr-2.5 shrink-0" />
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (searchQuery.trim()) {
+                    router.push(`/ask?q=${encodeURIComponent(searchQuery)}`);
+                  } else {
+                    router.push('/ask');
+                  }
+                }}
+                className="relative flex-1 flex items-center rounded-2xl bg-neutral-900 border border-neutral-800 focus-within:border-white/30 focus-within:ring-2 focus-within:ring-white/10 px-3.5 py-2.5 transition-all shadow-sm"
+              >
+                <Sparkles className="w-4 h-4 text-neutral-300 mr-2.5 shrink-0" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => handleSearch(e.target.value)}
-                  placeholder="Search saved posts... (e.g. 'website design', 'font pairings', 'recipe')"
-                  className="w-full bg-transparent text-xs text-white placeholder-neutral-500 focus:outline-none"
+                  placeholder="Ask AI Copilot or search saved posts... (Press Enter to ask)"
+                  className="w-full bg-transparent text-sm text-white placeholder-neutral-500 focus:outline-none"
                 />
+                
                 {searchQuery && (
                   <button
+                    type="button"
                     onClick={() => handleSearch('')}
-                    className="text-neutral-500 hover:text-neutral-300 ml-2"
+                    className="text-neutral-500 hover:text-neutral-300 ml-2 p-1"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
                 )}
-              </div>
+
+                <button
+                  type="submit"
+                  className="ml-2 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-neutral-200 text-black text-xs font-semibold transition-colors shrink-0"
+                >
+                  Ask AI
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </form>
 
               {/* View Toggle & Sort Controls */}
               <div className="flex items-center gap-2.5 self-end sm:self-auto">
@@ -919,7 +903,7 @@ export default function DashboardPage() {
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-purple-400" />
-                <span className="text-xs font-bold text-white">Ask AI Bot</span>
+                <span className="text-xs font-bold text-white">Ask AI Copilot</span>
               </div>
               <ArrowRight className="w-3.5 h-3.5 text-neutral-400" />
             </div>

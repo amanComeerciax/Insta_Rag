@@ -144,11 +144,14 @@ export async function DELETE(req: NextRequest) {
     const clearAll = searchParams.get('all') === 'true';
     const postId = searchParams.get('id');
 
-    let userId: string | null = null;
-    try {
-      const clerkAuth = auth();
-      if (clerkAuth?.userId) userId = clerkAuth.userId;
-    } catch {}
+    const queryUserId = searchParams.get('userId');
+    let userId: string | null = queryUserId || null;
+    if (!userId) {
+      try {
+        const clerkAuth = auth();
+        if (clerkAuth?.userId) userId = clerkAuth.userId;
+      } catch {}
+    }
     const targetUserId = userId || 'direct_cookie_user';
 
     if (clearAll) {

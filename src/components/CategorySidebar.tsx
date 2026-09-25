@@ -33,7 +33,7 @@ export default function CategorySidebar({
           className="flex-shrink-0 px-3 py-1 rounded-lg text-xs font-semibold bg-gradient-to-r from-blue-600 to-purple-600 text-white flex items-center gap-1.5 shadow-sm active:scale-95 transition-transform"
         >
           <Sparkles className="w-3 h-3 fill-current" />
-          <span>Ask AI Bot</span>
+          <span>Ask AI Copilot</span>
         </button>
         <button
           onClick={() => onSelectCategory('All')}
@@ -63,7 +63,7 @@ export default function CategorySidebar({
 
       {/* Desktop Vertical Sidebar */}
       <div className="hidden lg:block bg-neutral-950 rounded-xl p-4 border border-neutral-800/80 space-y-3">
-        {/* Quick Ask AI Bot Side Action Card */}
+        {/* Quick Ask AI Copilot Side Action Card */}
         <button
           onClick={handleOpenAiBot}
           className="w-full group p-2.5 rounded-xl border border-blue-500/30 bg-gradient-to-r from-blue-950/40 via-purple-950/30 to-pink-950/20 hover:border-blue-500/60 hover:from-blue-950/60 hover:to-pink-950/40 transition-all text-left flex items-center justify-between shadow-sm hover:shadow-blue-500/10"
@@ -76,7 +76,7 @@ export default function CategorySidebar({
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors">
-                  Ask AI Bot
+                  Ask AI Copilot
                 </span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               </div>

@@ -28,7 +28,14 @@ import {
   Palette,
   Code2,
   ChevronDown,
-  ArrowLeft
+  ArrowLeft,
+  PieChart,
+  Lightbulb,
+  Wrench,
+  Paperclip,
+  Mic,
+  Settings,
+  Globe
 } from 'lucide-react';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import PostDetailModal from '@/components/PostDetailModal';
@@ -80,28 +87,22 @@ function GeminiStar({ className = "w-5 h-5" }: { className?: string }) {
 
 const STARTER_PROMPTS = [
   {
-    icon: '✍️',
-    title: 'Fonts & Color Palettes',
-    tag: 'Typography',
-    prompt: 'What font pairings and color palettes did I bookmark for web design?',
+    icon: <PieChart className="w-5 h-5 text-neutral-400 group-hover:text-white transition-colors" />,
+    title: 'Synthesize Data',
+    tag: 'Analysis',
+    prompt: 'Summarize the key takeaways and color palettes from my saved design posts.',
   },
   {
-    icon: '💻',
-    title: 'CSS & Code Snippets',
-    tag: 'Development',
-    prompt: 'Show CSS and HTML code for my bookmarked UI transitions or cards',
+    icon: <Lightbulb className="w-5 h-5 text-neutral-400 group-hover:text-white transition-colors" />,
+    title: 'Creative Brainstorm',
+    tag: 'Ideation',
+    prompt: 'Give me 3 unique UI transition ideas based on my bookmarked reels.',
   },
   {
-    icon: '📱',
-    title: 'Mobile UI & Navigation',
-    tag: 'App Design',
-    prompt: 'What navigation bar designs and UI ideas did I bookmark?',
-  },
-  {
-    icon: '🍕',
-    title: 'EATLY & Brand Breakdown',
-    tag: 'Case Study',
-    prompt: 'Break down the EATLY food delivery homepage design and key stats',
+    icon: <Wrench className="w-5 h-5 text-neutral-400 group-hover:text-white transition-colors" />,
+    title: 'Check Facts',
+    tag: 'Research',
+    prompt: 'Compare the typography used in my recent web design bookmarks.',
   },
 ];
 
@@ -458,7 +459,7 @@ export default function AskAssistantPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex flex-col justify-between max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
+    <div className="min-h-[calc(100vh-4rem)] flex flex-col justify-between max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
       {/* Top Google AI Header */}
       <div className="flex items-center justify-between pb-4 border-b border-neutral-800/80">
         <div className="flex items-center gap-3">
@@ -469,7 +470,7 @@ export default function AskAssistantPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                Google AI Mode
+                SaveSort AI Copilot
               </h1>
               <span className="flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-medium bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 border border-blue-500/30 text-blue-300 rounded-full shadow-sm">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
@@ -560,52 +561,104 @@ export default function AskAssistantPage() {
       {/* Chat Messages Container */}
       <div className="flex-1 py-6 space-y-6 overflow-y-auto">
         {messages.length === 0 ? (
-          /* Empty / Google AI Welcome State */
-          <div className="max-w-2xl mx-auto text-center py-10 space-y-8 animate-fade-in">
-            {/* Center Glowing Gemini Star */}
-            <div className="relative inline-flex items-center justify-center">
-              <div className="absolute -inset-6 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-pink-600/20 rounded-full blur-2xl -z-10" />
-              <div className="w-20 h-20 rounded-3xl bg-[#18191b] border border-white/10 flex items-center justify-center shadow-2xl">
-                <GeminiStar className="w-10 h-10" />
-              </div>
+          /* Empty / Cortex-like Welcome State */
+          <div className="max-w-4xl mx-auto flex flex-col items-center justify-center min-h-[70vh] animate-fade-in">
+            {/* Center Glowing Monochrome Orb */}
+            <div className="relative inline-flex items-center justify-center mb-8 mt-10">
+              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-neutral-200 via-white to-neutral-400 blur-[6px] shadow-[0_0_80px_rgba(255,255,255,0.2)] animate-pulse" />
+              <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/60 to-transparent mix-blend-overlay" />
             </div>
 
-            <div className="space-y-2.5">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                What do you want to explore?
+            <div className="space-y-1 text-center mb-10">
+              <h2 className="text-3xl sm:text-4xl font-medium bg-gradient-to-r from-neutral-300 to-white bg-clip-text text-transparent">
+                Hello, {user?.firstName || 'there'}
               </h2>
-              <p className="text-sm text-neutral-400 leading-relaxed max-w-lg mx-auto">
-                Ask in English or Hinglish. Google AI synthesizes exact details from your bookmarked posts, reading visual OCR text, design fonts, and code.
-              </p>
+              <h1 className="text-4xl sm:text-5xl font-semibold text-white tracking-tight">
+                How can I assist you today?
+              </h1>
             </div>
 
-            {/* Google AI Starter Prompts Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-left">
-              {STARTER_PROMPTS.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSendMessage(item.prompt)}
-                  className="group relative p-4 rounded-2xl border border-neutral-800/90 bg-[#161719]/90 hover:bg-[#1f2024] hover:border-neutral-700 transition-all flex flex-col justify-between text-left shadow-md hover:shadow-xl hover:-translate-y-0.5"
-                >
-                  <div className="flex items-center justify-between w-full mb-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">{item.icon}</span>
-                      <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider px-2 py-0.5 rounded-md bg-neutral-900 border border-neutral-800">
-                        {item.tag}
-                      </span>
-                    </div>
-                    <ArrowRight className="w-3.5 h-3.5 text-neutral-500 group-hover:text-blue-400 transition-colors group-hover:translate-x-1 transition-transform" />
+            {/* Main Input Box (Cortex Style) */}
+            <div className="w-full max-w-3xl">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (input.trim() && !loading && !isStreaming) handleSendMessage();
+                }}
+                className="relative bg-neutral-950/50 border border-white/10 rounded-3xl p-4 shadow-2xl transition-all focus-within:border-white/30 focus-within:shadow-[0_0_40px_rgba(255,255,255,0.05)] mb-6 flex flex-col backdrop-blur-xl"
+              >
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (input.trim() && !loading && !isStreaming) {
+                        handleSendMessage();
+                      }
+                    }
+                  }}
+                  placeholder="Ask me anything..."
+                  className="w-full bg-transparent resize-none text-white placeholder-neutral-500 focus:outline-none min-h-[60px] p-2 text-base"
+                  disabled={loading}
+                />
+                
+                {/* Input Actions Row */}
+                <div className="flex items-center justify-between mt-3">
+                  <div className="flex items-center gap-3">
+                    <button type="button" className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/20 bg-white/5 text-neutral-300 hover:bg-white/10 text-xs font-medium transition-colors">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Deeper Research
+                    </button>
+                    <button type="button" className="p-1.5 text-neutral-400 hover:text-white transition-colors" title="Attach file">
+                      <Paperclip className="w-4 h-4" />
+                    </button>
+                    <button type="button" className="p-1.5 text-neutral-400 hover:text-white transition-colors" title="Settings">
+                      <Settings className="w-4 h-4" />
+                    </button>
                   </div>
-                  <div>
-                    <h3 className="text-xs font-semibold text-white mb-1 group-hover:text-blue-300 transition-colors">
-                      {item.title}
-                    </h3>
-                    <p className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
-                      &ldquo;{item.prompt}&rdquo;
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <button type="button" className="p-1.5 text-neutral-400 hover:text-white transition-colors">
+                      <Globe className="w-4 h-4" />
+                    </button>
+                    <button type="button" className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors">
+                      <Mic className="w-4 h-4" />
+                    </button>
+                    {input.trim().length > 0 && !loading && !isStreaming && (
+                      <button
+                        type="submit"
+                        className="w-8 h-8 rounded-full bg-white hover:bg-neutral-200 flex items-center justify-center text-black shadow-md transition-colors absolute right-4 bottom-4 animate-in zoom-in duration-200"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
+                </div>
+              </form>
+
+              <div className="flex items-center gap-2 mb-6 px-2">
+                <Sparkles className="w-3.5 h-3.5 text-neutral-300" />
+                <span className="text-xs font-semibold text-white">Saved prompts</span>
+                <button type="button" className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-white/10 text-xs font-medium text-neutral-300 hover:bg-white/5 transition-colors">
+                  <Paperclip className="w-3.5 h-3.5" />
+                  Attach file
                 </button>
-              ))}
+              </div>
+
+              {/* Action Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {STARTER_PROMPTS.slice(0, 3).map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSendMessage(item.prompt)}
+                    className="text-left p-5 rounded-2xl bg-neutral-950/40 border border-white/5 hover:border-white/15 hover:bg-neutral-900/60 transition-all group backdrop-blur-sm"
+                  >
+                    <div className="mb-4">{item.icon}</div>
+                    <h3 className="text-sm font-semibold text-white mb-1.5 group-hover:text-white transition-colors">{item.title}</h3>
+                    <p className="text-xs text-neutral-500 leading-relaxed group-hover:text-neutral-400 transition-colors">{item.prompt}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         ) : (
@@ -940,7 +993,7 @@ export default function AskAssistantPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold bg-gradient-to-r from-blue-400 via-purple-300 to-rose-300 bg-clip-text text-transparent">
-                        Google AI Mode Thinking
+                        SaveSort AI Thinking
                       </span>
                       <span className="flex h-2 w-2 relative">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
@@ -960,8 +1013,8 @@ export default function AskAssistantPage() {
         )}
       </div>
 
-      {/* Floating Google Gemini Pill Input Bar */}
-      <div className="pt-3 sticky bottom-0 bg-gradient-to-t from-black via-black/95 to-transparent pb-2">
+      {/* Floating Google Gemini Pill Input Bar (Hidden in empty state) */}
+      <div className={`pt-3 sticky bottom-0 bg-gradient-to-t from-black via-black/95 to-transparent pb-2 transition-all ${messages.length === 0 ? 'hidden opacity-0 pointer-events-none' : 'opacity-100'}`}>
         {/* Quick Suggestion Chips */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-1 scrollbar-none">
           {QUICK_PILLS.map((chip, cIdx) => (
@@ -1036,7 +1089,7 @@ export default function AskAssistantPage() {
         </form>
 
         <p className="text-[11px] text-center text-neutral-500 mt-2">
-          Google AI Mode uses multimodal Gemini RAG to retrieve and synthesize directly from your saved bookmarks.
+          SaveSort AI Copilot uses multimodal RAG to retrieve and synthesize directly from your saved bookmarks.
         </p>
       </div>
 

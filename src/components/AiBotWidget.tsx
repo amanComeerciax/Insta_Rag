@@ -324,7 +324,7 @@ export default function AiBotWidget() {
 
   const handleExportMarkdown = () => {
     if (messages.length === 0) return;
-    const md = formatConversationAsMarkdown(messages, 'SaveSort AI Bot Conversation');
+    const md = formatConversationAsMarkdown(messages, 'SaveSort AI Copilot Conversation');
     const dateStr = new Date().toISOString().slice(0, 10);
     downloadFile(`SaveSort-AI-Bot-${dateStr}.md`, md, 'text/markdown;charset=utf-8');
   };
@@ -391,6 +391,10 @@ export default function AiBotWidget() {
     } catch {}
   };
 
+  if (pathname === '/' || pathname === '/ask') {
+    return null;
+  }
+
   return (
     <>
       {/* 1. Floating AI Bot Trigger Button (Pinned on the side / bottom-right) */}
@@ -402,7 +406,7 @@ export default function AiBotWidget() {
               setIsMinimized(false);
             }}
             className="relative flex items-center gap-2.5 p-[1.5px] rounded-full bg-gradient-to-r from-[#4285F4] via-[#9B72CB] to-[#D96570] shadow-2xl hover:shadow-blue-500/30 hover:scale-105 active:scale-95 transition-all duration-300"
-            title="Ask AI Bot about your saved bookmarks"
+            title="Ask AI Copilot about your saved bookmarks"
           >
             <div className="flex items-center gap-2.5 px-4 py-2.5 bg-[#141517] hover:bg-[#1a1b1e] rounded-full text-white transition-colors">
               <div className="relative flex items-center justify-center">
@@ -413,7 +417,7 @@ export default function AiBotWidget() {
                 </span>
               </div>
               <span className="font-semibold text-xs tracking-wide bg-gradient-to-r from-blue-300 via-indigo-200 to-rose-300 bg-clip-text text-transparent">
-                Ask AI Bot
+                Ask AI Copilot
               </span>
             </div>
           </button>
@@ -441,7 +445,7 @@ export default function AiBotWidget() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold tracking-wide text-white">
-                    SaveSort AI Bot
+                    SaveSort AI Copilot
                   </span>
                   <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300">
                     Grounded

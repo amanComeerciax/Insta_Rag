@@ -270,7 +270,8 @@ export default function LandingPage() {
               }}
             >
               {/* a) Email Field */}
-              <div className="w-full">
+              <SignedOut>
+                <div className="w-full">
                 <label htmlFor="hero-email" className="sr-only">
                   Email
                 </label>
@@ -296,6 +297,7 @@ export default function LandingPage() {
                   }}
                 />
               </div>
+              </SignedOut>
 
               {/* b) Button: Proceed using email / Open Dashboard */}
               <SignedIn>
@@ -348,30 +350,6 @@ export default function LandingPage() {
                 </button>
               </SignedOut>
 
-              {/* c) Button: Access Dashboard / Ask AI */}
-              <SignedIn>
-                <Link
-                  href="/ask"
-                  className="w-full rounded-none flex items-center justify-center transition-all duration-200 text-center uppercase border border-neutral-800"
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontWeight: 400,
-                    fontSize: 'clamp(11px, 0.78vw, 14px)',
-                    letterSpacing: '0.22em',
-                    padding: 'clamp(17px, 1.6vw, 27px) 20px',
-                    backgroundColor: 'var(--fill-ghost)',
-                    color: '#ffffff',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.12)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'var(--fill-ghost)';
-                  }}
-                >
-                  ASK AI AGENT
-                </Link>
-              </SignedIn>
 
               <SignedOut>
                 <Link
@@ -1673,29 +1651,6 @@ export default function LandingPage() {
                 }}
               >
                 OPEN DASHBOARD →
-              </Link>
-              <Link
-                href="/ask"
-                className="rounded-none flex items-center justify-center transition-all duration-200 text-center uppercase border border-[rgba(255,255,255,0.2)]"
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontWeight: 400,
-                  fontSize: 'clamp(11px, 0.78vw, 14px)',
-                  letterSpacing: '0.22em',
-                  padding: '16px 36px',
-                  backgroundColor: 'transparent',
-                  color: 'var(--text-dim)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = '#ffffff';
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'var(--text-dim)';
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
-                }}
-              >
-                ASK AI AGENT
               </Link>
             </SignedIn>
 
